@@ -82,7 +82,7 @@ enum RenderCache {
     }
 
     /// Deletes cached documents not opened for 30 days and recognized text unused for 90 days.
-    static func cleanCache() {
+    static func cleanCache(all: Bool = false) {
         let fm = FileManager.default
         func remove(in directory: URL, olderThan days: Double) {
             let cutoff = Date().addingTimeInterval(-days * 86400)
@@ -92,8 +92,8 @@ enum RenderCache {
                 if let modified, modified < cutoff { try? fm.removeItem(at: item) }
             }
         }
-        remove(in: documentsDirectory, olderThan: 30)
-        remove(in: ocrDirectory, olderThan: 90)
+        remove(in: documentsDirectory, olderThan: all ? 0 : 30)
+        remove(in: ocrDirectory, olderThan: all ? 0 : 90)
     }
 
     // MARK: - Rendering

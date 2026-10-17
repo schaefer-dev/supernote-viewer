@@ -88,6 +88,15 @@ public struct SNPage {
     }
 }
 
+
+public struct SNTitle {
+    public let pageNumber: Int
+    public let metadata: SNMetadata
+    public let bitmapAddress: Int?
+    public let width: Int?
+    public let height: Int?
+}
+
 public final class SNFile {
     public let data: Data
     public let fileType: SNFileType
@@ -95,6 +104,7 @@ public final class SNFile {
     public let header: SNMetadata
     public let footer: SNMetadata
     public let pages: [SNPage]
+    public let titles: [SNTitle]
 
     /// Device canvas size in portrait orientation.
     public let deviceWidth: Int
@@ -174,6 +184,36 @@ public final class SNFile {
             return SNPage(number: ref.number, metadata: meta, layers: layers,
                           width: landscape ? h : w, height: landscape ? w : h)
         }
+        
+        var titleRefs: [(pageNumber: Int, address: Int)] = []
+        for (key, value) in footer.pairs where key.hasPrefix("TITLE_") {
+            guard let pageNumber = Int(key.dropFirst(6).prefix(4)),
+                    let addr = Int(value), addr > 0 else { continue }
+            titleRefs.append((pageNumber, addr))
+        }
+        
+        titles = titleRefs.map { ref in
+            let meta = SNMetadata((try? Self.block(data, at: ref.address)) ?? Data())
+            var w: Int?
+            var h: Int?
+            if let rect = meta["TITLERECT"] {
+                let splits = rect.split(separator: ",").map { Int($0) }
+                if splits.count == 4 {
+                    w = splits[2]
+                    h = splits[3]
+                }
+            }
+
+            return SNTitle(
+                pageNumber: ref.pageNumber,
+                metadata: meta,
+                bitmapAddress: meta.address("TITLEBITMAP"),
+                width: w,
+                height: h
+            )
+        }
+        
+        pageRefs.sort { $0.number < $1.number }
     }
 
     /// Numeric file format version, e.g. 20260016.

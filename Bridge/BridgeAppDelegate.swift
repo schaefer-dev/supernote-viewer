@@ -19,6 +19,16 @@ final class BridgeAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         RenderCache.cleanCache()
+
+        // For development; if given a CLI argument clear the cache and re-render
+        let arguments = ProcessInfo.processInfo.arguments
+        if !arguments.isEmpty {
+            let url = URL(fileURLWithPath: arguments[1])
+            RenderCache.cleanCache(all: true)
+            application(NSApplication.shared, open: [url])
+            
+        }
+        
         // Files arrive via application(_:open:) right after launch; without any, show the info window.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self] in
             if !receivedFiles { showInfoWindow() }

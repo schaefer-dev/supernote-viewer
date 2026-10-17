@@ -25,7 +25,7 @@ public struct RenderOptions {
 /// Renders Supernote files to PDF data.
 public enum PDFRenderer {
     /// Bumped when output changes, so cached renders are redone.
-    public static let version = 5
+    public static let version = 6
 
     /// Renders a `.note` or `.mark` file. For `.mark`, the companion PDF next to it is used when readable.
     public static func render(contentsOf url: URL, options: RenderOptions = RenderOptions()) throws -> Data {
@@ -42,7 +42,11 @@ public enum PDFRenderer {
 
     public static func renderNote(_ file: SNFile, options: RenderOptions = RenderOptions()) throws -> Data {
         let words = recognizeIfNeeded(file, options)
+        let fileTitles = TextLayer.recognizeTitles(file: file, cacheDirectory:  options.ocrCacheDirectory)
+        
         return try makePDF { ctx in
+            var titles: [[String : Any]] = []
+            
             for page in file.pages {
                 let rect = CGRect(origin: .zero, size: pointSize(page.width, page.height))
                 beginPage(ctx, rect)
@@ -51,7 +55,34 @@ public enum PDFRenderer {
                 drawInk(of: page, in: file, ctx: ctx, rect: rect, options: options)
                 TextLayer.draw(textWords(of: page, in: file, recognized: words[page.number]), in: ctx, rect: rect)
                 ctx.endPDFPage()
+       
+                if let pageTitles = fileTitles[page.number] {
+                    if pageTitles.count == 1 {
+                        titles.append([
+                            kCGPDFOutlineTitle as String: "\(page.number): \(pageTitles[0].text)",
+                            kCGPDFOutlineDestination as String: page.number
+                        ])
+
+                    } else {
+                        var children = pageTitles.map { title in
+                            [
+                                kCGPDFOutlineTitle as String: "\(title.text)",
+                                kCGPDFOutlineDestination as String: page.number
+                            ]
+                        }
+                        titles.append(
+                            [
+                                kCGPDFOutlineTitle as String: "\(page.number):",
+                                kCGPDFOutlineDestination as String: page.number,
+                                kCGPDFOutlineChildren as String: children
+                            ]
+                        )
+                    }
+                }
             }
+         
+            let outline: [String: Any] = [kCGPDFOutlineChildren as String: titles]
+            CGPDFContextSetOutline(ctx, outline as CFDictionary)
         }
     }
 

@@ -78,6 +78,22 @@ public enum LayerCompositor {
         return layer.layerProtocol == "PNG" ? image() ?? rle() : rle() ?? image()
     }
 
+    /// Renders a title's bitmap (one color code per pixel of its rect) onto white as a grayscale image.
+    public static func render(title: SNTitle, in file: SNFile) -> CGImage? {
+        guard let address = title.bitmapAddress, let bitmap = try? file.block(at: address),
+              let w = title.width, let h = title.height, w > 0, h > 0,
+              let codes = RLEDecoder.decodeValidated(bitmap, width: w, height: h)
+        else { return nil }
+
+        var gray = [UInt8](repeating: 0, count: w * h)
+        var alpha = [UInt8](repeating: 0, count: w * h)
+        composite(codes: codes, table: inkTable(x2: file.usesX2Colors, markFile: file.fileType == .mark),
+                  dstGray: &gray, dstAlpha: &alpha)
+        // Premultiplied over white: gray + (1 - alpha) * 255.
+        let out = (0..<(w * h)).map { UInt8(clamping: Int(gray[$0]) + 255 - Int(alpha[$0])) }
+        return makeImage(bytes: out, width: w, height: h, gray: true)
+    }
+
     /// Decodes an RLE layer into one color code per pixel; nil for image, empty or corrupt layers.
     public static func codes(of layer: SNLayer, page: SNPage, in file: SNFile) -> [UInt8]? {
         guard case .codes(let codes)? = content(of: layer, page: page, in: file) else { return nil }

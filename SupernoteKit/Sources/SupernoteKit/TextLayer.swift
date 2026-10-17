@@ -54,6 +54,47 @@ public enum TextLayer {
         }
         return results
     }
+    
+    public static func recognizeTitles(file: SNFile, cacheDirectory: URL?) -> [Int: [RecognizedWord]] {
+        let pages = file.pages
+        let lock = NSLock()
+        var results: [Int: [RecognizedWord]] = [:]
+        
+        if let cacheDirectory {
+            try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        }
+
+        DispatchQueue.concurrentPerform(iterations: pages.count) { i in
+            let page = pages[i]
+            let cacheURL = cacheDirectory.flatMap { dir in
+                contentHash(of: page, in: file).map { dir.appendingPathComponent("\($0)-headers.json") }
+            }
+            var titles: [RecognizedWord]?
+            if let cacheURL, let data = try? Data(contentsOf: cacheURL) {
+                titles = try? JSONDecoder().decode([RecognizedWord].self, from: data)
+            }
+            
+            if titles == nil {
+                let pageTitles = file.titles.filter { $0.pageNumber == page.number }
+                
+                pageTitles.forEach { title in
+                    if let titleImage = LayerCompositor.render(title: title, in: file) {
+                        let titleWords = recognize(image: titleImage)
+                        let title = titleWords.map { $0.text }.joined(separator: " ")
+                        
+                        titles = (titles ?? []) + [RecognizedWord(text: title, box: titleWords[0].box)]
+                    }
+                }
+                if let cacheURL, let titles = titles, let data = try? JSONEncoder().encode(titles) {
+                    try? data.write(to: cacheURL, options: .atomic)
+                }
+            }
+            lock.lock()
+            results[page.number] = titles
+            lock.unlock()
+        }
+        return results
+    }
 
     /// Recognizes handwriting in an image, returning one entry per whitespace-separated word.
     public static func recognize(image: CGImage) -> [RecognizedWord] {
