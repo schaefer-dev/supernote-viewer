@@ -5,17 +5,64 @@ import PDFKit
 import SupernoteKit
 import UniformTypeIdentifiers
 
-// Usage: snrender <file.note|file.pdf.mark> <out.pdf> [--png <dir>] [--dpi <n>] [--bitmap] [--ocr]
+// Usage: snrender <file.note|file.pdf.mark> <out.pdf> [--png <dir>] [--dpi <n>] [--bitmap] [--ocr] [--benchmark [n]]
 let args = CommandLine.arguments
 guard args.count >= 3 else {
-    FileHandle.standardError.write("usage: snrender <input> <out.pdf> [--png <dir>] [--dpi <n>] [--bitmap] [--ocr]\n".data(using: .utf8)!)
+    FileHandle.standardError.write("usage: snrender <input> <out.pdf> [--png <dir>] [--dpi <n>] [--bitmap] [--ocr] [--benchmark [n]]\n".data(using: .utf8)!)
     exit(2)
 }
 let input = URL(fileURLWithPath: args[1])
 let output = URL(fileURLWithPath: args[2])
 let pngDir = args.firstIndex(of: "--png").map { URL(fileURLWithPath: args[$0 + 1]) }
 let dpi = args.firstIndex(of: "--dpi").flatMap { Double(args[$0 + 1]) } ?? 100
-let options = RenderOptions(vector: !args.contains("--bitmap"), textLayer: args.contains("--ocr"))
+var options = RenderOptions(vector: !args.contains("--bitmap"), textLayer: args.contains("--ocr"))
+// --benchmark [n]: after a warm-up render, renders n more times (default 5) and reports timings.
+let benchmarkRuns = args.firstIndex(of: "--benchmark").map { i in
+    i + 1 < args.count ? Int(args[i + 1]) ?? 5 : 5
+}
+
+func elapsed(since start: UInt64) -> Double {
+    Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9
+}
+
+func stats(_ samples: [Double]) -> String {
+    let sorted = samples.sorted()
+    let median = sorted.count % 2 == 1 ? sorted[sorted.count / 2]
+        : (sorted[sorted.count / 2 - 1] + sorted[sorted.count / 2]) / 2
+    let mean = sorted.reduce(0, +) / Double(sorted.count)
+    return String(format: "min %7.1fms  median %7.1fms  mean %7.1fms  max %7.1fms",
+                  sorted.first! * 1000, median * 1000, mean * 1000, sorted.last! * 1000)
+}
+
+/// Renders `runs` times after a warm-up and prints total and average per-page timings.
+/// Page times are the gaps between page-progress callbacks, so page 1 includes setup and recognition.
+func benchmark(runs: Int) throws {
+    var totalTimes: [Double] = [], pageTimes: [[Double]] = []
+    for run in 0...runs {
+        var pages: [Double] = []
+        var last = DispatchTime.now().uptimeNanoseconds
+        options.pageProgress = { _, _ in
+            let now = DispatchTime.now().uptimeNanoseconds
+            pages.append(Double(now - last) / 1e9)
+            last = now
+        }
+        let start = DispatchTime.now().uptimeNanoseconds
+        _ = try PDFRenderer.render(contentsOf: input, options: options)
+        let total = elapsed(since: start)
+        options.pageProgress = nil
+        guard run > 0 else { continue }  // warm-up
+
+        totalTimes.append(total)
+        pageTimes.append(pages)
+    }
+
+    print("benchmark: \(runs) run(s) after warm-up, \(options.vector ? "vector" : "bitmap")\(options.textLayer ? " +ocr" : "")")
+    print("  total    \(stats(totalTimes))")
+    let pageCount = pageTimes.first?.count ?? 0
+    if pageCount > 0 {
+        print("  per page \(stats(pageTimes.map { $0.reduce(0, +) / Double(pageCount) }))  (\(pageCount) pages)")
+    }
+}
 
 do {
     let file = try SNFile(url: input)
@@ -28,6 +75,8 @@ do {
         } ?? "strokes=none"
         print("  page \(page.number): \(page.width)x\(page.height) style=\(page.style) visible=[\(layers)] \(strokeInfo)")
     }
+
+    if let benchmarkRuns { try benchmark(runs: max(benchmarkRuns, 1)) }
 
     let start = Date()
     let pdf = try PDFRenderer.render(contentsOf: input, options: options)

@@ -49,12 +49,17 @@ public enum PDFRenderer {
         let words = recognizeIfNeeded(file, options)
         return try makePDF { ctx in
             var outlinePages: [Int: OutlinePage] = [:]
-            for (index, page) in file.pages.enumerated() {
+
+            pipelined(
+                file.pages.count,
+                prepare: { prepareInk(of: file.pages[$0], in: file, options: options) })
+            { index, ink in
+                let page = file.pages[index]
                 let rect = CGRect(origin: .zero, size: pointSize(page.width, page.height))
                 beginPage(ctx, rect)
                 ctx.setFillColor(gray: 1, alpha: 1)
                 ctx.fill(rect)
-                drawInk(of: page, in: file, ctx: ctx, rect: rect, options: options)
+                drawInk(ink, of: page, in: file, ctx: ctx, rect: rect)
                 let pageWords = textWords(of: page, in: file, recognized: words[page.number])
                 TextLayer.draw(pageWords, in: ctx, rect: rect)
                 ctx.endPDFPage()
@@ -80,7 +85,11 @@ public enum PDFRenderer {
         return try makePDF { ctx in
             var outlinePages: [Int: OutlinePage] = [:]
             let outputCount = max(pageCount, 1)
-            for number in 1...outputCount {
+            pipelined(
+                outputCount,
+                prepare: { index in marksByNumber[index + 1].map { prepareInk(of: $0, in: file, options: options) }
+            }) { index, ink in
+                let number = index + 1
                 let mark = marksByNumber[number]
                 let deviceW = mark?.width ?? file.deviceWidth
                 let deviceH = mark?.height ?? file.deviceHeight
@@ -116,8 +125,8 @@ public enum PDFRenderer {
                     for h in highlights[number - 1] ?? [] { h.draw(in: ctx, pageRect: pageRect) }
                 }
 
-                if let mark {
-                    drawInk(of: mark, in: file, ctx: ctx, rect: box, options: options)
+                if let mark, let ink {
+                    drawInk(ink, of: mark, in: file, ctx: ctx, rect: box)
                     let markWords = textWords(of: mark, in: file, recognized: words[mark.number])
                     TextLayer.draw(markWords, in: ctx, rect: box)
                     outlinePages[number] = OutlinePage(index: number, width: mark.width, height: mark.height,
@@ -134,35 +143,36 @@ public enum PDFRenderer {
         }
     }
 
+    /// One visible layer of a page, ready to draw.
+    enum PreparedLayer {
+        /// Stroke outlines, over typed text box images (in page pixels).
+        case vector([SNStroke], textBoxes: [(image: CGImage, rect: CGRect)])
+        /// The layer's bitmap, covering the page.
+        case image(CGImage)
+    }
+
     /// Draws a page's visible layers bottom-up into `rect`. Each handwriting layer is drawn as
     /// vector outlines when the stroke data reproduces its bitmap, otherwise as the bitmap.
     /// Typed text boxes are drawn from the bitmap, since TOTALPATH only has their frames.
     /// The template background is always a bitmap. Layers whose bitmap can't be decoded are drawn
     /// from their strokes if they have any, and left out otherwise.
     static func drawInk(of page: SNPage, in file: SNFile, ctx: CGContext, rect: CGRect, options: RenderOptions) {
+        drawInk(prepareInk(of: page, in: file, options: options), of: page, in: file, ctx: ctx, rect: rect)
+    }
+
+    /// Decodes a page's visible layers for `drawInk(_:of:in:ctx:rect:)`, choosing vector or bitmap
+    /// per layer. Doesn't touch a context, so pages can be prepared concurrently.
+    static func prepareInk(of page: SNPage, in file: SNFile, options: RenderOptions) -> [PreparedLayer] {
         let strokes = options.vector ? page.strokes(in: file) : nil
 
-        func drawVector(_ layerStrokes: [SNStroke], textBoxes: [CGRect], codes: [UInt8]?) {
-            ctx.saveGState()
-            // Page pixels (origin top-left, y down) -> rect.
-            ctx.concatenate(CGAffineTransform(a: rect.width / CGFloat(page.width), b: 0, c: 0,
-                                              d: -rect.height / CGFloat(page.height),
-                                              tx: rect.minX, ty: rect.maxY))
-            ctx.interpolationQuality = .high
-            for textRect in textBoxes {
-                guard let codes, let (image, r) = LayerCompositor.textBoxImage(codes: codes, rect: textRect,
-                                                                               page: page, file: file) else { continue }
-                // Undo the y flip locally so the image is drawn upright.
-                ctx.saveGState()
-                ctx.translateBy(x: 0, y: r.maxY)
-                ctx.scaleBy(x: 1, y: -1)
-                ctx.draw(image, in: CGRect(x: r.minX, y: 0, width: r.width, height: r.height))
-                ctx.restoreGState()
+        func vector(_ layerStrokes: [SNStroke], textBoxes: [CGRect], codes: [UInt8]?) -> PreparedLayer {
+            let images = textBoxes.compactMap { textRect in
+                codes.flatMap { LayerCompositor.textBoxImage(codes: $0, rect: textRect, page: page, file: file) }
             }
-            VectorRenderer.draw(layerStrokes, in: ctx, file: file)
-            ctx.restoreGState()
+            return .vector(layerStrokes, textBoxes: images.map { (image: $0.0, rect: $0.1) })
         }
 
+        var prepared: [PreparedLayer] = []
         for layer in page.visibleLayers(fileType: file.fileType) {
             let content = LayerCompositor.content(of: layer, page: page, in: file)
             if let strokes, let index = SNStroke.layerIndex(forLayerName: layer.name) {
@@ -172,12 +182,12 @@ public enum PDFRenderer {
                     let textRects = layerStrokes.filter { !$0.isDeleted }.compactMap(\.textBox?.rect)
                     if VectorRenderer.covers(layerStrokes, codes: codes, width: page.width, height: page.height,
                                              ignoring: textRects) {
-                        drawVector(layerStrokes, textBoxes: textRects, codes: codes)
+                        prepared.append(vector(layerStrokes, textBoxes: textRects, codes: codes))
                         continue
                     }
                 case nil where layerStrokes.contains(where: \.isInk):
                     // The bitmap is unusable; the strokes are the best remaining source.
-                    drawVector(layerStrokes, textBoxes: [], codes: nil)
+                    prepared.append(vector(layerStrokes, textBoxes: [], codes: nil))
                     continue
                 default:
                     break
@@ -185,9 +195,64 @@ public enum PDFRenderer {
             }
             if content != nil, let image = LayerCompositor.render(page: page, in: file, background: .transparent,
                                                                   include: { $0.name == layer.name }) {
+                prepared.append(.image(image))
+            }
+        }
+        return prepared
+    }
+
+    /// Draws layers from `prepareInk` into `rect`.
+    static func drawInk(_ layers: [PreparedLayer], of page: SNPage, in file: SNFile, ctx: CGContext, rect: CGRect) {
+        for layer in layers {
+            switch layer {
+            case .vector(let strokes, let textBoxes):
+                ctx.saveGState()
+                // Page pixels (origin top-left, y down) -> rect.
+                ctx.concatenate(CGAffineTransform(a: rect.width / CGFloat(page.width), b: 0, c: 0,
+                                                  d: -rect.height / CGFloat(page.height),
+                                                  tx: rect.minX, ty: rect.maxY))
+                ctx.interpolationQuality = .high
+                for (image, r) in textBoxes {
+                    // Undo the y flip locally so the image is drawn upright.
+                    ctx.saveGState()
+                    ctx.translateBy(x: 0, y: r.maxY)
+                    ctx.scaleBy(x: 1, y: -1)
+                    ctx.draw(image, in: CGRect(x: r.minX, y: 0, width: r.width, height: r.height))
+                    ctx.restoreGState()
+                }
+                VectorRenderer.draw(strokes, in: ctx, file: file)
+                ctx.restoreGState()
+            case .image(let image):
                 ctx.interpolationQuality = .high
                 ctx.draw(image, in: rect)
             }
+        }
+    }
+
+    /// Calls `prepare` for indices `0..<count` on background threads and `body` with each result in
+    /// index order on the calling thread. At most `workers` results are being prepared or waiting
+    /// for `body`, which bounds memory: a prepared page holds its decoded layer bitmaps. More than
+    /// 4 workers don't render faster, since drawing into the PDF on the calling thread is the
+    /// bottleneck, but each one adds a page of bitmaps.
+    static func pipelined<T>(_ count: Int, workers prepareWorkerCount: Int = 4,
+                             prepare: @escaping (Int) -> T, _ body: (Int, T) throws -> Void) rethrows {
+        var results = [T?](repeating: nil, count: count)
+        let lock = NSLock()
+        let ready = (0..<count).map { _ in DispatchSemaphore(value: 0) }
+        func enqueuePrepare(_ index: Int) {
+            guard index < count else { return }
+            DispatchQueue.global().async {
+                let value = prepare(index)
+                lock.withLock { results[index] = value }
+                ready[index].signal()
+            }
+        }
+        for index in 0..<min(prepareWorkerCount, count) { enqueuePrepare(index) }
+        for index in 0..<count {
+            ready[index].wait()
+            let value = lock.withLock { results[index].take()! }
+            enqueuePrepare(index + prepareWorkerCount)
+            try body(index, value)
         }
     }
 

@@ -85,7 +85,7 @@ This builds both apps and installs them to `/Applications`, replacing a copy ins
 
 - `SupernoteKit/`: Swift package with the file parser, RLE decoder, layer compositor, stroke (`TOTALPATH`) parser, vector renderer, handwriting text layer and PDF renderer.
   - `swift test` runs the tests. Tests that use the files in `examples/` always run. Tests that need private sample files in `example_files/` are skipped when those files are missing.
-  - `swift run -c release snrender <file> out.pdf [--png outdir] [--dpi n] [--bitmap] [--ocr]` renders a file from the command line. With `--ocr` it also prints the text layer and the table of contents.
+  - `swift run -c release snrender <file> out.pdf [--png outdir] [--dpi n] [--bitmap] [--ocr] [--benchmark [n]]` renders a file from the command line. With `--ocr` it also prints the text layer and the table of contents. With `--benchmark` it renders the file n more times (default 5) after a warm-up and prints total and per-page timings. Use a release build for meaningful numbers.
 - `QuickLookPreview/`: the Quick Look extension. It is data-based and returns a PDF built by `PDFRenderer`.
 - `Shared/`: the render cache used by both apps.
 - `Viewer/`: Supernote Viewer. Its PDFKit window has thumbnails, live reload and measuring. It exports the `.note` and `.mark` file types.
