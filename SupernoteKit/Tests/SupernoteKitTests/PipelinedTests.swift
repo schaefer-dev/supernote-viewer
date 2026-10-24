@@ -28,7 +28,8 @@ final class PipelinedTests: XCTestCase {
     }
 
     /// At most `workers` pages are being prepared or waiting to be drawn, which bounds memory,
-    /// and with a slow drawer more than one is.
+    /// and with a slow drawer more than one is. The counter only drops once `body` starts, after
+    /// the next page is enqueued, so it can briefly include the page about to be drawn.
     func testPreparesAtMostWorkersAhead() {
         let lock = NSLock()
         var outstanding = 0, maxOutstanding = 0
@@ -44,7 +45,7 @@ final class PipelinedTests: XCTestCase {
             usleep(1000)
         }
         XCTAssertEqual(outstanding, 0)
-        XCTAssertLessThanOrEqual(maxOutstanding, 4)
+        XCTAssertLessThanOrEqual(maxOutstanding, 4 + 1)
         XCTAssertGreaterThan(maxOutstanding, 1)
     }
 
