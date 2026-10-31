@@ -4,7 +4,12 @@ import Foundation
 /// Draws strokes from TOTALPATH as filled vector outlines.
 enum VectorRenderer {
     /// Color codes that the device draws as solid (non anti-aliased) pixels.
-    private static let solidCodes: Set<UInt8> = [0x61, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x9d, 0x9e, 0xc9, 0xca]
+    /// Indexed by color code, since it is checked for every pixel of a layer.
+    private static let solidCodes: [Bool] = {
+        var table = [Bool](repeating: false, count: 256)
+        for code in [0x61, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x9d, 0x9e, 0xc9, 0xca] { table[code] = true }
+        return table
+    }()
 
     /// Draws one layer's ink strokes. The context must map page pixels (origin top-left, y down)
     /// onto the page. Markers are drawn first, as one transparency group per color, so overlapping
@@ -92,7 +97,7 @@ enum VectorRenderer {
         var solid = 0, uncovered = 0, overpainted = 0
         for i in 0..<min(codes.count, mask.count) {
             let code = codes[i]
-            if solidCodes.contains(code) {
+            if solidCodes[Int(code)] {
                 solid += 1
                 if mask[i] == 0 && (ignored.isEmpty || !ignored[i]) { uncovered += 1 }
             } else if code == RLEDecoder.transparent && mask[i] >= 128 {
