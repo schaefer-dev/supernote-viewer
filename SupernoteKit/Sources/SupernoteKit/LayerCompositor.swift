@@ -121,13 +121,18 @@ public enum LayerCompositor {
 
         case .transparent:
             guard anyInk else { return nil }
-            var out = [UInt8](repeating: 0, count: count * 4)
+            // Gray + alpha rather than RGBA: a third of the color data for the PDF context to
+            // unpack and compress when the page is written, which happens on the drawing thread.
+            var out = [UInt8](repeating: 0, count: count * 2)
             for i in 0..<count {
-                let g = dstGray[i]
-                out[i * 4] = g; out[i * 4 + 1] = g; out[i * 4 + 2] = g
-                out[i * 4 + 3] = dstAlpha[i]
+                out[i * 2] = dstGray[i]
+                out[i * 2 + 1] = dstAlpha[i]
             }
-            return makeImage(bytes: out, width: w, height: h, gray: false)
+            let provider = CGDataProvider(data: Data(out) as CFData)!
+            return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 16, bytesPerRow: w * 2,
+                           space: CGColorSpaceCreateDeviceGray(),
+                           bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                           provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
         }
     }
 
