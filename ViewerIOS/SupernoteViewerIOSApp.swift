@@ -36,7 +36,24 @@ import Network
 @Observable @MainActor final class MobileLibrary {
     let session = DropboxSession()
     let service: any DropboxService = SDKDropboxService()
-    let recents = RecentDocumentsStore()
+    private static var libraryDefaults: UserDefaults {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-favorites") {
+            return UserDefaults(suiteName: "favorites-ui-tests")!
+        }
+        #endif
+        return .standard
+    }
+    let recents = RecentDocumentsStore(defaults: MobileLibrary.libraryDefaults)
+    let favorites = FavoriteDocumentsStore(defaults: MobileLibrary.libraryDefaults)
+    var accountFavorites: [FavoriteDocument] { favorites.records.filter { $0.reference.accountID == session.accountID } }
+    /// Stars or unstars the page currently shown in the reader.
+    func toggleBookmark() {
+        guard let reference = opener.reference, opener.displayed != nil else { return }
+        let page = reader.page
+        favorites.toggleBookmark(reference, page: page, title: reader.title(forPage: page))
+    }
+    func open(_ favorite: FavoriteDocument) { openStored(favorite.reference, page: favorite.bookmarkedPage) }
     let opener: DocumentOpenCoordinator
     let reader = ReaderModel()
     let sync: LibrarySync
@@ -62,6 +79,7 @@ import Network
         Workspace.cleanAbandoned()
         RenderedPDFCache.shared.adoptLegacyRenderings()
         opener = DocumentOpenCoordinator(recents: recents, cache: .shared)
+        opener.favorites = favorites
         // Sync renders on its own queues so opening a document never waits behind it:
         // user-initiated while the app is open, utility once it is in the background.
         sync = LibrarySync(cache: .shared,
@@ -69,6 +87,10 @@ import Network
                            backgroundRenderer: EngineRenderer(queue: DispatchQueue(label: "SupernoteLibrarySyncBackground", qos: .utility)),
                            scheduler: SystemContinuedProcessing())
         reader.pageChanged = { [weak self] page in self?.pageChanged(page) }
+        reader.titlesChanged = { [weak self] in
+            guard let self, let reference = opener.reference else { return }
+            favorites.refreshTitles(reference) { self.reader.title(forPage: $0) }
+        }
         opener.renderingSaved = { [weak self] key in self?.renderingSaved(key) }
         sync.renderingSaved = { [weak self] key in self?.renderingSaved(key) }
         sync.readerIsBusy = { [weak self] in self?.opener.status != nil && self?.opener.displayed == nil }
@@ -80,9 +102,23 @@ import Network
     private static var uiTestFixture: URL? {
         let arguments = ProcessInfo.processInfo.arguments
         guard let index = arguments.firstIndex(of: "--ui-test-open"), arguments.indices.contains(index + 1) else { return nil }
-        return URL(fileURLWithPath: arguments[index + 1])
+        let path = arguments[index + 1]
+        // Physical-device tests transfer fixtures into the app's Documents directory.
+        if !path.hasPrefix("/") {
+            return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(path)
+        }
+        return URL(fileURLWithPath: path)
     }
     func openUITestFixtureIfRequested() {
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-favorites") {
+            session.accountID = "ui-favorites"
+            favorites.removeAll(account: "ui-favorites")
+            recents.removeAll(account: "ui-favorites")
+            for index in 1...6 {
+                favorites.toggleDocument(.init(source: .dropbox, accountID: "ui-favorites", fileID: "ui-favorite-\(index)", name: "Document \(index).note"))
+            }
+            return
+        }
         guard let url = Self.uiTestFixture else { return }
         openFixture(url)
     }
@@ -97,6 +133,7 @@ import Network
         if let account = session.accountID {
             RenderedPDFCache.shared.removeAll(accountID: account)
             recents.removeAll(account: account)
+            favorites.removeAll(account: account)
         }
         thumbnails.removeAll(); savedGeneration += 1
         session.disconnect()
@@ -148,9 +185,22 @@ import Network
         #if DEBUG
         if recent.reference.source == .fixture { openFixture(URL(fileURLWithPath: recent.reference.fileID)); return }
         #endif
-        guard recent.reference.source == .dropbox else { return }
-        guard session.accountID == recent.reference.accountID else { importError = "Connect the Dropbox account used for this recent document."; return }
-        opener.openRemote(recent.reference, service: service)
+        openStored(recent.reference)
+    }
+    func openStored(_ reference: DocumentReference, page: Int? = nil) {
+        // A bookmark in the document already on screen just turns to its page.
+        if let page, opener.reference?.id == reference.id, opener.displayed != nil, opener.status == nil {
+            reader.go(to: page); return
+        }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-favorites"), reference.accountID == "ui-favorites", let url = Self.uiTestFixture {
+            opener.openLocal(reference, source: url, companion: nil, page: page)
+            return
+        }
+        #endif
+        guard reference.source == .dropbox else { return }
+        guard session.accountID == reference.accountID else { importError = "Connect the Dropbox account used for this document."; return }
+        opener.openRemote(reference, service: service, page: page)
     }
     func reload(annotationsOnly: Bool = false) {
         guard let reference = opener.reference else { return }

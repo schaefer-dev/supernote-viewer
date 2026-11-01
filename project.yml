@@ -177,7 +177,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.SupernoteViewerIOS
         PRODUCT_NAME: SupernoteViewerIOS
-        CURRENT_PROJECT_VERSION: "18"
+        CURRENT_PROJECT_VERSION: "21"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: Apple Development

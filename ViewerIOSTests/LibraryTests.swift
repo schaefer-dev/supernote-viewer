@@ -70,6 +70,26 @@ struct FakeRenderer: MobileRendering {
         for _ in 0..<200 { if condition() { return }; try await Task.sleep(for: .milliseconds(10)) }
         XCTFail("Condition did not become true")
     }
+    func testBookmarkOpensAtItsPageAndRefreshesMetadata() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let favorites = FavoriteDocumentsStore(defaults: defaults)
+        let recents = RecentDocumentsStore(defaults: defaults)
+        let old = DocumentReference.remote(entry(), account: "a")
+        recents.save(old, page: 3)
+        favorites.toggleBookmark(old, page: 12, title: "Pancakes")
+        let renamed = entry(name: "Renamed.note", path: "/moved/renamed.note")
+        let service = MockDropbox(); service.files[renamed.id] = renamed
+        let opener = DocumentOpenCoordinator(recents: recents, renderer: FakeRenderer())
+        opener.favorites = favorites
+        opener.openRemote(old, service: service, page: 12)
+        XCTAssertEqual(opener.page, 12, "A bookmark overrides the last reading position")
+        try await eventually { opener.displayed != nil && opener.status == nil }
+        XCTAssertEqual(favorites.records.first?.reference.name, "Renamed.note")
+        XCTAssertEqual(favorites.records.first?.reference.path, "/moved/renamed.note")
+        XCTAssertEqual(favorites.records.first?.bookmarkedPage, 12, "Reading does not move a bookmark")
+        opener.openRemote(old, service: service)
+        XCTAssertEqual(opener.page, recents.page(for: old), "Without a bookmark the reading position is used")
+    }
     func testPaginationGroupingAndSameParentCompanions() async throws {
         let service = MockDropbox()
         let original = entry("id:p", name: "A.pdf", path: "/notes/a.pdf")
@@ -239,20 +259,62 @@ struct FakeRenderer: MobileRendering {
             return try XCTUnwrap(PDFDocument(data: data))
         }
         let reader = ReaderModel(), first = try document("old"), second = try document("new")
+        reader.findActive = true
         reader.replace(first, page: 99)
         XCTAssertEqual(reader.page, 1)
         reader.query = "new"; reader.replace(second, page: 1)
         XCTAssertEqual(reader.query, "new"); XCTAssertTrue(reader.results.isEmpty)
         XCTAssertEqual(reader.view.document, second); XCTAssertEqual(reader.page, 1)
         let oldSelection = try XCTUnwrap(first.page(at: 0)?.selection(for: NSRange(location: 0, length: 3)))
-        reader.select(oldSelection)
-        XCTAssertNil(reader.view.currentSelection)
+        reader.didMatchString(oldSelection)
         try await eventually { reader.results.count == 2 && !reader.searching }
-        XCTAssertEqual(reader.page, 1)
+        XCTAssertTrue(reader.results.allSatisfy { $0.pages.allSatisfy { $0.document === second } }, "Matches from the old document are dropped")
         reader.didMatchString(reader.results[0])
         reader.query = ""; reader.search()
         try await Task.sleep(for: .milliseconds(20))
         XCTAssertTrue(reader.results.isEmpty, "A queued callback from the previous query must not repopulate cleared search")
+    }
+    private func pages(_ texts: [String]) throws -> PDFDocument {
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 200, height: 200))
+        let data = renderer.pdfData { ctx in
+            for text in texts { ctx.beginPage(); (text as NSString).draw(at: CGPoint(x: 20, y: 30), withAttributes: [.font: UIFont.systemFont(ofSize: 12)]) }
+        }
+        return try XCTUnwrap(PDFDocument(data: data))
+    }
+    func testFindStepsThroughMatchesAndWraps() async throws {
+        let reader = ReaderModel()
+        reader.replace(try pages(["soup", "bread", "soup", "soup"]), page: 0)
+        reader.findActive = true
+        reader.query = "soup"; reader.search()
+        try await eventually { reader.results.count == 3 && !reader.searching }
+        XCTAssertEqual(reader.current, 0, "Typing selects the first match")
+        XCTAssertEqual(reader.currentMatchPage, 0)
+        reader.next(); XCTAssertEqual(reader.currentMatchPage, 2)
+        reader.next(); reader.next()
+        XCTAssertEqual(reader.current, 0, "Next wraps from the last match to the first")
+        reader.previous(); XCTAssertEqual(reader.current, 2, "Previous wraps from the first match to the last")
+        reader.endFind()
+        XCTAssertTrue(reader.results.isEmpty); XCTAssertNil(reader.current); XCTAssertEqual(reader.query, "soup")
+    }
+    func testClosedFindNeverSearches() async throws {
+        let reader = ReaderModel()
+        reader.query = "soup"
+        reader.replace(try pages(["soup"]), page: 0)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(reader.results.isEmpty, "A reloaded document must not jump to a match while find is closed")
+        XCTAssertFalse(reader.searching)
+    }
+    func testFindResumesAtItsPageAfterRecognizedPDFReplacesPreview() async throws {
+        let reader = ReaderModel()
+        reader.replace(try pages(["soup", "soup", "bread", "soup"]), page: 0)
+        reader.findActive = true
+        reader.query = "soup"; reader.search()
+        try await eventually { reader.results.count == 3 && !reader.searching }
+        reader.next(); reader.next()
+        XCTAssertEqual(reader.currentMatchPage, 3)
+        reader.replace(try pages(["soup", "soup", "bread", "soup"]), page: 3)
+        try await eventually { reader.results.count == 3 && !reader.searching }
+        XCTAssertEqual(reader.current, 2, "Find stays on the match it was on, not the first one")
     }
     func testRecentsUseAccountAndIDAndExcludeImports() {
         let store = store(), a = DocumentReference.remote(entry(), account: "a"), b = DocumentReference.remote(entry(), account: "b")
@@ -313,5 +375,97 @@ struct FakeRenderer: MobileRendering {
         subject.connect(); _ = subject.handle(URL(string: "db-synthetic://callback")!)
         driver.callback?(false, "Canceled")
         XCTAssertEqual(subject.state, .disconnected); XCTAssertEqual(subject.error, "Canceled")
+    }
+}
+
+@MainActor final class FavoriteDocumentsTests: XCTestCase {
+    private func reference(_ id: String, account: String = "a", name: String = "Note.note") -> DocumentReference {
+        .remote(.init(id: id, name: name, path: "/" + name, isFolder: false), account: account)
+    }
+    func testPersistenceIdentityAndMetadata() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = FavoriteDocumentsStore(defaults: defaults)
+        let first = reference("1")
+        store.toggleDocument(first)
+        store.toggleBookmark(first, page: 4, title: "Soup")
+        let renamed = reference("1", name: "Renamed.note")
+        store.update(renamed)
+        let restored = FavoriteDocumentsStore(defaults: defaults)
+        XCTAssertEqual(restored.records.count, 2)
+        XCTAssertTrue(restored.isDocumentFavorite(first))
+        XCTAssertTrue(restored.isBookmarked(first, page: 4))
+        XCTAssertFalse(restored.isBookmarked(first, page: 5))
+        XCTAssertEqual(restored.records.map(\.reference.name), ["Renamed.note", "Renamed.note"])
+        XCTAssertEqual(restored.records.last?.title, "Soup")
+        restored.toggleDocument(renamed)
+        XCTAssertFalse(restored.isDocumentFavorite(first))
+        XCTAssertTrue(restored.isFavorite(first), "A bookmark still marks the document as a favorite")
+        restored.toggleBookmark(renamed, page: 4, title: nil)
+        XCTAssertTrue(restored.records.isEmpty)
+    }
+    func testSeveralBookmarksPerDocument() {
+        let store = FavoriteDocumentsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let note = reference("1")
+        store.toggleBookmark(note, page: 2, title: "Pancakes")
+        store.toggleBookmark(note, page: 9, title: nil)
+        XCTAssertEqual(store.bookmarkedPages(note), [2, 9])
+        XCTAssertEqual(Set(store.records.map(\.id)).count, 2)
+        store.remove(store.records[0])
+        XCTAssertEqual(store.bookmarkedPages(note), [9])
+    }
+    func testRecordsFromBeforeBookmarksBecomeDocumentFavorites() throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let legacy = [["reference": ["source": "dropbox", "accountID": "a", "fileID": "1", "name": "Old.note"], "page": 7]]
+        defaults.set(try JSONSerialization.data(withJSONObject: legacy), forKey: "mobile.favorites")
+        let store = FavoriteDocumentsStore(defaults: defaults)
+        XCTAssertEqual(store.records.count, 1)
+        XCTAssertNil(store.records.first?.bookmarkedPage, "The old saved page was a reading position, not a bookmark")
+        XCTAssertTrue(store.isDocumentFavorite(.init(source: .dropbox, accountID: "a", fileID: "1", name: "Old.note")))
+    }
+    func testRefreshTitlesLabelsBookmarksOnly() {
+        let store = FavoriteDocumentsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let note = reference("1"), other = reference("2")
+        store.toggleDocument(note)
+        store.toggleBookmark(note, page: 3, title: nil)
+        store.toggleBookmark(other, page: 3, title: "Keep")
+        store.refreshTitles(note) { $0 == 3 ? "Lasagne" : nil }
+        XCTAssertEqual(store.records.map(\.title), [nil, "Lasagne", "Keep"])
+    }
+    func testTitleForPageUsesOwnThenEarlierTitle() {
+        let titles = [ReaderModel.Title(label: "Breakfast", page: 1, depth: 0),
+                      ReaderModel.Title(label: "Pancakes", page: 1, depth: 1),
+                      ReaderModel.Title(label: "Dinner", page: 4, depth: 0)]
+        XCTAssertNil(ReaderModel.title(forPage: 0, in: titles))
+        XCTAssertEqual(ReaderModel.title(forPage: 1, in: titles), "Breakfast")
+        XCTAssertEqual(ReaderModel.title(forPage: 3, in: titles), "Pancakes", "A recipe running onto later pages keeps its name")
+        XCTAssertEqual(ReaderModel.title(forPage: 6, in: titles), "Dinner")
+    }
+    func testAccountOrderingCleanupAndImportExclusion() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = FavoriteDocumentsStore(defaults: defaults)
+        let a = reference("1"), other = reference("1", account: "b"), c = reference("3")
+        store.toggleDocument(a); store.toggleDocument(other); store.toggleDocument(c)
+        store.move(from: IndexSet(integer: 1), to: 0, account: "a")
+        XCTAssertEqual(store.records.filter { $0.reference.accountID == "a" }.map(\.id), [c.id, a.id])
+        store.toggleDocument(.init(source: .imported, accountID: nil, fileID: "local", name: "Local.pdf"))
+        XCTAssertEqual(store.records.count, 3)
+        store.removeAll(account: "a")
+        XCTAssertEqual(FavoriteDocumentsStore(defaults: defaults).records.map(\.id), [other.id])
+    }
+}
+
+final class PageThumbnailRendererTests: XCTestCase {
+    func testRendersAndCachesPagesOfTheDisplayedPDF() async throws {
+        let examples = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("examples")
+        let pdf = examples.appendingPathComponent("2026-03-22 Garmin Connect Integration.pdf")
+        let renderer = PageThumbnailRenderer()
+        let rendered = await renderer.image(0, in: pdf)
+        let image = try XCTUnwrap(rendered)
+        XCTAssertGreaterThan(image.size.width, 100)
+        let cached = await renderer.image(0, in: pdf)
+        XCTAssertTrue(cached === image, "A page renders once per file")
+        let missing = await renderer.image(0, in: examples.appendingPathComponent("missing.pdf"))
+        XCTAssertNil(missing)
     }
 }

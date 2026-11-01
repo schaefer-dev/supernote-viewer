@@ -127,6 +127,7 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
     private var cacheKey: RenderCacheKey?
     private let renderer: any MobileRendering
     private let recents: RecentDocumentsStore
+    var favorites: FavoriteDocumentsStore?
     private let cache: RenderedPDFCache?
     private let backgroundTime: any BackgroundTime
     private var backgroundToken: Int?
@@ -140,20 +141,21 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
     func cancel() {
         token.cancel(); task?.cancel(); generation = UUID(); status = nil; fraction = nil; recognizing = false
     }
-    private func begin(_ reference: DocumentReference) -> UUID {
+    private func begin(_ reference: DocumentReference, page requestedPage: Int? = nil) -> UUID {
         cancel(); token = CancellationToken()
         savePosition()
         let sameDocument = self.reference?.id == reference.id
         self.reference = reference; error = nil; errorIsOffline = false; warning = nil; missingCompanion = false
         if !sameDocument { displayed = nil }
         inputs = nil; cacheKey = nil
-        page = recents.page(for: reference)
+        page = requestedPage ?? recents.page(for: reference)
         metrics = OpeningMetrics()
         status = "Preparing document…"
         return generation
     }
-    func openRemote(_ reference: DocumentReference, service: any DropboxService, annotationsOnly: Bool = false) {
-        let operation = begin(reference)
+    /// `page` opens at a bookmarked page instead of the last reading position.
+    func openRemote(_ reference: DocumentReference, service: any DropboxService, annotationsOnly: Bool = false, page: Int? = nil) {
+        let operation = begin(reference, page: page)
         task = Task {
             do {
                 let workspace = try Workspace()
@@ -161,6 +163,7 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
                 try check(operation)
                 guard source.id == reference.fileID else { throw ReaderError.message("Dropbox returned a different document. Refresh the folder.") }
                 self.reference = .remote(source, account: reference.accountID ?? "")
+                if let fresh = self.reference { favorites?.update(fresh) }
                 var original: RemoteEntry?
                 var previewShown = false
                 if source.isAnnotation && !annotationsOnly {
@@ -283,8 +286,8 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
         try check(operation)
         return url
     }
-    func openLocal(_ reference: DocumentReference, source: URL, companion: URL? = nil, annotationsOnly: Bool = false) {
-        let operation = begin(reference)
+    func openLocal(_ reference: DocumentReference, source: URL, companion: URL? = nil, annotationsOnly: Bool = false, page: Int? = nil) {
+        let operation = begin(reference, page: page)
         task = Task {
             do {
                 if source.pathExtension.lowercased() == "mark" && companion == nil && !annotationsOnly { throw ReaderError.missingCompanion }

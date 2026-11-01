@@ -10,6 +10,12 @@ final class IPadLayoutTests: XCTestCase {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
     }
+    @MainActor private func assertSingleLibraryControl(_ app: XCUIApplication) {
+        let leadingButtons = app.navigationBars["Example Titles"].buttons.allElementsBoundByIndex.filter {
+            $0.isHittable && $0.frame.midX < app.frame.midX
+        }
+        XCTAssertEqual(leadingButtons.count, 1, "Reader must have exactly one leading toolbar button, regardless of its label: \(leadingButtons.map(\.label))")
+    }
     @MainActor func testIPadLayoutRotationKeyboardAndSheets() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad only") }
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -19,6 +25,7 @@ final class IPadLayoutTests: XCTestCase {
         let home = app.navigationBars["Supernote Viewer"]
         XCTAssertFalse(home.exists && home.isHittable, "Opening a document gives the page the whole screen")
         sleep(2)
+        assertSingleLibraryControl(app)
         shot(app, "02 Landscape reader")
 
         app.buttons["Pages and Titles"].tap()
@@ -33,16 +40,19 @@ final class IPadLayoutTests: XCTestCase {
         shot(app, "04 Portrait reader with inspector")
         app.buttons["Pages and Titles"].tap()
         sleep(1)
+        assertSingleLibraryControl(app)
         shot(app, "05 Portrait reader")
 
         app.typeKey("f", modifierFlags: .command)
-        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 10), "Command-F opens search")
-        shot(app, "06 Search sheet")
+        XCTAssertTrue(app.textFields["Search this document"].waitForExistence(timeout: 10), "Command-F opens the find bar")
+        shot(app, "06 Find bar")
         app.buttons["Done"].firstMatch.tap()
 
         // Bring the library back with the reader's Library button.
         let showLibrary = app.buttons["Library"].firstMatch
         XCTAssertTrue(showLibrary.waitForExistence(timeout: 5), "The reader offers a way back to the library on iPad")
+        XCTAssertEqual(app.buttons.matching(identifier: "Library").count, 1, "Only one library-reveal button is shown")
+        XCTAssertFalse(app.buttons["Show Sidebar"].exists, "The automatic sidebar toggle must not duplicate Library")
         showLibrary.tap(); sleep(1)
         XCTAssertTrue(app.navigationBars["Supernote Viewer"].waitForExistence(timeout: 5), "The library is shown again")
         XCTAssertTrue(app.staticTexts["Recently Opened"].exists, "Home lists the document just opened")

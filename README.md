@@ -129,8 +129,12 @@ Format notes come from [supernotelib](https://github.com/jya-dev/supernote-tool)
 ## iPhone and iPad (iOS 26+)
 
 The native online reader is in `ViewerIOS/`. It supports Dropbox browsing/opening,
-Files import, bundled examples, PDFKit reading/search, thumbnails/titles, PDF
-export and recents. It displays a complete preview before handwriting OCR.
+opening documents shared from other apps, PDFKit reading/search, a page grid and
+titles, PDF export, recents and local Dropbox favorites. Star whole documents from
+document lists, or bookmark the current page from the reader; bookmarks show the
+page's handwritten title and number. Home provides quick access, and the full
+Favorites list supports manual ordering. Favoriting does not download documents
+automatically. It displays a complete preview before handwriting OCR.
 See [iOS setup and validation](docs/ios-implementation.md) for configuration,
 build commands and outstanding real-account/physical-device checks. Offline
 pinning and synchronization remain [later roadmap work](docs/ios-port-plan.md).

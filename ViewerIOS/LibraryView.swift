@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 /// Screens pushed onto the library column: Home → Browse Dropbox → folders.
 enum LibraryRoute: Hashable {
+    case favorites
     case dropbox
     case folder(RemoteEntry)
 }
@@ -10,7 +11,6 @@ enum LibraryRoute: Hashable {
 struct LibraryView: View {
     @Bindable var library: MobileLibrary
     @State private var compactColumn: NavigationSplitViewColumn = .sidebar
-    @State private var importing = false
     @State private var importingOriginal = false
     @State private var showingSettings = false
     @State private var columns: NavigationSplitViewVisibility = .all
@@ -20,15 +20,18 @@ struct LibraryView: View {
         // reader is pushed over the library, so Back returns to wherever the document was opened from.
         NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
             NavigationStack(path: $library.path) {
-                HomeView(library: library, importFiles: { importing = true }, showSettings: { showingSettings = true },
+                HomeView(library: library, showSettings: { showingSettings = true },
                          opened: { compactColumn = .detail })
                     .navigationDestination(for: LibraryRoute.self) { route in
                         switch route {
+                        case .favorites: FavoritesView(library: library, opened: { compactColumn = .detail })
                         case .dropbox: DropboxLanding(library: library, opened: { compactColumn = .detail })
                         case .folder(let folder): FolderView(library: library, folder: folder, opened: { compactColumn = .detail })
                         }
                     }
             }
+            // The sidebar column owns the system toggle, even when it appears over the reader.
+            .toolbar(removing: .sidebarToggle)
         } detail: {
             ReaderScreen(library: library,
                          showLibrary: sizeClass == .regular && columns == .detailOnly ? { withAnimation { columns = .all } } : nil)
@@ -54,10 +57,8 @@ struct LibraryView: View {
             NavigationStack { LibraryFolderPicker(library: library, folder: nil, chosen: {}) }
                 .interactiveDismissDisabled()
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf, UTType(exportedAs: "dev.schaefer.supernote.note"), UTType(exportedAs: "dev.schaefer.supernote.mark")], allowsMultipleSelection: true) { result in
-            switch result { case .success(let urls): library.importFiles(urls); compactColumn = .detail
-            case .failure(let error): library.importError = error.localizedDescription }
-        }
+        // Annotations handed over by another app may still need their original PDF. This must stay the
+        // only .fileImporter on this view: SwiftUI honours just the last one attached.
         .sheet(isPresented: Binding(get: { library.pendingImport != nil && !importingOriginal }, set: { if !$0 && !importingOriginal { library.pendingImport = nil } })) {
             NavigationStack {
                 ContentUnavailableView {
@@ -86,10 +87,9 @@ struct LibraryView: View {
 
 // MARK: - Home
 
-/// The start screen: sync status, the way into Dropbox and Files, and recently opened documents.
+/// The start screen: sync status, the way into Dropbox, favorites and recently opened documents.
 private struct HomeView: View {
     @Bindable var library: MobileLibrary
-    let importFiles: () -> Void
     let showSettings: () -> Void
     let opened: () -> Void
     private static let pageSize = 10
@@ -113,8 +113,19 @@ private struct HomeView: View {
                     }
                 }
                 .accessibilityIdentifier("Browse Dropbox")
-                Button(action: importFiles) {
-                    Label("Import from Files…", systemImage: "square.and.arrow.down")
+            }
+            Section("Favorites") {
+                if library.accountFavorites.isEmpty {
+                    Text("Star documents, or pages in the reader, to keep them handy here.").font(.callout).foregroundStyle(.secondary)
+                } else {
+                    ForEach(library.accountFavorites.prefix(5)) { favorite in
+                        FavoriteRow(library: library, favorite: favorite, opened: opened)
+                    }
+                    if library.accountFavorites.count > 5 {
+                        NavigationLink("Show All", value: LibraryRoute.favorites)
+                    } else {
+                        NavigationLink("Edit Favorites", value: LibraryRoute.favorites)
+                    }
                 }
             }
             if library.recents.records.isEmpty {
@@ -140,6 +151,8 @@ private struct HomeView: View {
                         Button { library.openRecent(recent); opened() } label: {
                             RecentRow(library: library, recent: recent)
                         }
+                        .contextMenu { FavoriteAction(library: library, reference: recent.reference) }
+                        .swipeActions(edge: .leading, allowsFullSwipe: false) { FavoriteAction(library: library, reference: recent.reference) }
                         .swipeActions { Button("Remove", systemImage: "trash", role: .destructive) { library.recents.remove(recent) } }
                     }
                     if library.recents.records.count > recentLimit {
@@ -191,6 +204,7 @@ struct DocumentRow: View {
     let kind: DocumentKind
     let detail: String?
     var thumbnail: UIImage? = nil
+    var isFavorite = false
     var availableOffline = false
     var body: some View {
         HStack(spacing: 14) {
@@ -200,6 +214,9 @@ struct DocumentRow: View {
                 if let detail { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
             }
             Spacer(minLength: 0)
+            if isFavorite {
+                Image(systemName: "star.fill").font(.footnote).foregroundStyle(.yellow).accessibilityLabel("Favorite")
+            }
             if availableOffline {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.footnote).foregroundStyle(.green)
@@ -234,16 +251,17 @@ private struct RecentRow: View {
         DocumentRow(name: displayName(recent.reference.name), kind: DocumentKind(fileName: recent.reference.name),
                     detail: "Page \(recent.page + 1) · \(recent.opened.formatted(.relative(presentation: .named)))",
                     thumbnail: recent.reference.source == .dropbox
-                        ? library.thumbnails.thumbnail(account: recent.reference.accountID, fileID: recent.reference.fileID) : nil)
+                        ? library.thumbnails.thumbnail(account: recent.reference.accountID, fileID: recent.reference.fileID) : nil,
+                    isFavorite: library.favorites.isFavorite(recent.reference))
     }
 }
 
 private struct DropboxLanding: View {
     @Bindable var library: MobileLibrary
     #if DEBUG
-    static let unconfiguredText = "Add your Dropbox app key using scripts/prepare-ios.py. Import from Files is ready to use."
+    static let unconfiguredText = "Add your Dropbox app key using scripts/prepare-ios.py."
     #else
-    static let unconfiguredText = "Dropbox is not available in this build. Import from Files is ready to use."
+    static let unconfiguredText = "Dropbox is not available in this build."
     #endif
     let opened: () -> Void
     var body: some View {
@@ -299,9 +317,14 @@ private struct FolderView: View {
                         Button { library.openRemote(item.entry); opened() } label: {
                             DocumentRow(name: item.name, kind: item.kind, detail: item.detail,
                                         thumbnail: library.thumbnails.thumbnail(account: library.session.accountID, fileID: item.entry.id),
+                                        isFavorite: library.session.accountID.map { library.favorites.isFavorite(.remote(item.entry, account: $0)) } ?? false,
                                         availableOffline: model.available.contains(item.id))
                         }
+                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                            if let account = library.session.accountID { FavoriteAction(library: library, reference: .remote(item.entry, account: account)) }
+                        }
                         .contextMenu {
+                            if let account = library.session.accountID { FavoriteAction(library: library, reference: .remote(item.entry, account: account)) }
                             Button("Open", systemImage: "doc.text") { library.openRemote(item.entry); opened() }
                             if let original = item.original {
                                 Button("Open Original PDF", systemImage: "doc") { library.openRemote(original); opened() }
@@ -566,11 +589,74 @@ private struct SettingsView: View {
             } message: { Text("Your Dropbox files are not affected. Documents download again when you open or sync them.") }
             .confirmationDialog("Disconnect Dropbox?", isPresented: $confirmingDisconnect, titleVisibility: .visible) {
                 Button("Disconnect", role: .destructive) { library.disconnect(); dismiss() }
-            } message: { Text("Recents and downloaded documents for this account are removed from this \(deviceName).") }
+            } message: { Text("Favorites, recents and downloaded documents for this account are removed from this \(deviceName).") }
         }
     }
     private static var version: String {
         let info = Bundle.main.infoDictionary
         return "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+    }
+}
+
+/// Stars or unstars a whole document from a list.
+struct FavoriteAction: View {
+    @Bindable var library: MobileLibrary
+    let reference: DocumentReference
+    var body: some View {
+        if reference.source == .dropbox {
+            let starred = library.favorites.isDocumentFavorite(reference)
+            Button(starred ? "Remove from Favorites" : "Add to Favorites", systemImage: starred ? "star.fill" : "star") {
+                library.favorites.toggleDocument(reference)
+            }
+            .tint(.orange)
+        }
+    }
+}
+
+private struct FavoriteRow: View {
+    @Bindable var library: MobileLibrary
+    let favorite: FavoriteDocument
+    let opened: () -> Void
+    private var document: String { displayName(favorite.reference.name) }
+    private var kind: DocumentKind { DocumentKind(fileName: favorite.reference.name) }
+    var body: some View {
+        Button { library.open(favorite); opened() } label: {
+            if let page = favorite.bookmarkedPage {
+                // A bookmarked page leads with its title, so "that recipe" is findable by name.
+                DocumentRow(name: favorite.title ?? "Page \(page + 1)", kind: kind,
+                            detail: "\(document) · Page \(page + 1)",
+                            thumbnail: library.thumbnails.thumbnail(account: favorite.reference.accountID, fileID: favorite.reference.fileID))
+            } else {
+                DocumentRow(name: document, kind: kind, detail: kind.label,
+                            thumbnail: library.thumbnails.thumbnail(account: favorite.reference.accountID, fileID: favorite.reference.fileID))
+            }
+        }
+        .contextMenu { remove }
+        .swipeActions { remove }
+    }
+    private var remove: some View {
+        Button("Remove from Favorites", systemImage: "star.slash", role: .destructive) { library.favorites.remove(favorite) }
+    }
+}
+
+private struct FavoritesView: View {
+    @Bindable var library: MobileLibrary
+    let opened: () -> Void
+    var body: some View {
+        List {
+            ForEach(library.accountFavorites) { favorite in
+                FavoriteRow(library: library, favorite: favorite, opened: opened)
+            }
+            .onDelete { offsets in
+                let records = library.accountFavorites
+                for index in offsets { library.favorites.remove(records[index]) }
+            }
+            .onMove { offsets, destination in
+                if let account = library.session.accountID { library.favorites.move(from: offsets, to: destination, account: account) }
+            }
+        }
+        .overlay { if library.accountFavorites.isEmpty { ContentUnavailableView("No Favorites", systemImage: "star", description: Text("Star documents, or pages in the reader, to keep them handy here.")) } }
+        .navigationTitle("Favorites")
+        .toolbar { EditButton() }
     }
 }

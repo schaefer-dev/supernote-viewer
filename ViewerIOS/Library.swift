@@ -227,3 +227,79 @@ struct RecentDocument: Codable, Identifiable {
         rootRevision += 1
     }
 }
+
+/// A starred Dropbox document. Starred from a list it covers the whole document; starred in the
+/// reader it bookmarks one page, labelled with that page's handwritten title when there is one.
+struct FavoriteDocument: Codable, Identifiable {
+    var reference: DocumentReference
+    /// nil for a whole-document favorite. Records saved before page bookmarks decode with nil.
+    var bookmarkedPage: Int?
+    var title: String?
+    var id: String { bookmarkedPage.map { "\(reference.id)#\($0)" } ?? reference.id }
+}
+
+@Observable @MainActor final class FavoriteDocumentsStore {
+    private let defaults: UserDefaults
+    private(set) var records: [FavoriteDocument]
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        records = (defaults.data(forKey: "mobile.favorites").flatMap {
+            try? JSONDecoder().decode([FavoriteDocument].self, from: $0)
+        } ?? []).filter { $0.reference.source == .dropbox }
+    }
+    /// True when the document or any of its pages is starred.
+    func isFavorite(_ reference: DocumentReference) -> Bool { records.contains { $0.reference.id == reference.id } }
+    func isDocumentFavorite(_ reference: DocumentReference) -> Bool {
+        records.contains { $0.reference.id == reference.id && $0.bookmarkedPage == nil }
+    }
+    func isBookmarked(_ reference: DocumentReference, page: Int) -> Bool {
+        records.contains { $0.reference.id == reference.id && $0.bookmarkedPage == page }
+    }
+    func bookmarkedPages(_ reference: DocumentReference) -> Set<Int> {
+        Set(records.lazy.filter { $0.reference.id == reference.id }.compactMap(\.bookmarkedPage))
+    }
+    func toggleDocument(_ reference: DocumentReference) { toggle(reference, page: nil, title: nil) }
+    func toggleBookmark(_ reference: DocumentReference, page: Int, title: String?) { toggle(reference, page: max(0, page), title: title) }
+    private func toggle(_ reference: DocumentReference, page: Int?, title: String?) {
+        guard reference.source == .dropbox, reference.accountID != nil else { return }
+        let record = FavoriteDocument(reference: reference, bookmarkedPage: page, title: title)
+        if records.contains(where: { $0.id == record.id }) { records.removeAll { $0.id == record.id } }
+        else { records.append(record) }
+        persist()
+    }
+    /// Keeps names and paths current after a document is renamed or moved in Dropbox.
+    func update(_ reference: DocumentReference) {
+        var changed = false
+        for index in records.indices where records[index].reference.id == reference.id && records[index].reference != reference {
+            records[index].reference = reference; changed = true
+        }
+        if changed { persist() }
+    }
+    /// Labels bookmarks with the titles found once handwriting recognition finishes.
+    func refreshTitles(_ reference: DocumentReference, title: (Int) -> String?) {
+        var changed = false
+        for index in records.indices where records[index].reference.id == reference.id {
+            guard let page = records[index].bookmarkedPage, let label = title(page), label != records[index].title else { continue }
+            records[index].title = label; changed = true
+        }
+        if changed { persist() }
+    }
+    func remove(_ favorite: FavoriteDocument) {
+        records.removeAll { $0.id == favorite.id }; persist()
+    }
+    func move(from offsets: IndexSet, to destination: Int, account: String) {
+        var ordered = records.filter { $0.reference.accountID == account }
+        let moving = offsets.sorted().map { ordered[$0] }
+        for index in offsets.sorted().reversed() { ordered.remove(at: index) }
+        ordered.insert(contentsOf: moving, at: destination - offsets.filter { $0 < destination }.count)
+        var iterator = ordered.makeIterator()
+        records = records.map { $0.reference.accountID == account ? iterator.next()! : $0 }
+        persist()
+    }
+    func removeAll(account: String) {
+        records.removeAll { $0.reference.accountID == account }; persist()
+    }
+    private func persist() {
+        if let data = try? JSONEncoder().encode(records) { defaults.set(data, forKey: "mobile.favorites") }
+    }
+}
