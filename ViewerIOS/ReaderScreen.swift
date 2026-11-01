@@ -42,7 +42,7 @@ struct ReaderScreen: View {
             if let warning = library.opener.warning {
                 VStack(alignment: .leading) {
                     Text(warning).font(.caption)
-                    Button("Retry Recognition") { library.opener.retryRecognition() }
+                    if library.opener.metrics.offlineSavedAt == nil { Button("Retry Recognition") { library.opener.retryRecognition() } }
                 }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(.yellow.opacity(0.15))
             }
             if let error = library.opener.error {
@@ -99,11 +99,14 @@ struct ReaderScreen: View {
                     LabeledContent("Name", value: library.opener.reference?.name ?? "")
                     LabeledContent("Source", value: library.opener.reference?.source.rawValue ?? "")
                     LabeledContent("Pages", value: "\(library.reader.document?.pageCount ?? 0)")
+                    if let saved = library.opener.metrics.offlineSavedAt {
+                        LabeledContent("Opened from", value: "Saved rendering, offline (saved \(saved.formatted(date: .abbreviated, time: .shortened)))")
+                    } else if library.opener.metrics.openedFromCache { LabeledContent("Opened from", value: "Saved rendering (unchanged in Dropbox)") }
                     if let seconds = library.opener.metrics.downloadSeconds { LabeledContent("Download", value: String(format: "%.2f s", seconds)) }
                     if let seconds = library.opener.metrics.previewSeconds { LabeledContent("Preview rendering", value: String(format: "%.2f s", seconds)) }
                     if let seconds = library.opener.metrics.recognitionSeconds { LabeledContent("Handwriting recognition", value: String(format: "%.2f s", seconds)) }
                     if let path = library.opener.reference?.path { LabeledContent("Dropbox path", value: path) }
-                    Text("Dropbox documents are fetched again on Open or Reload. Reopening requires a network connection. Imported documents last for this session.").font(.footnote)
+                    Text("Dropbox documents are checked for changes on Open or Reload; unchanged documents reuse a saved rendering. Checking requires a network connection. Imported documents last for this session.").font(.footnote)
                 }.navigationTitle("Document Information").toolbar { Button("Done") { showingInfo = false } }
             }.presentationDetents([.medium, .large])
         }

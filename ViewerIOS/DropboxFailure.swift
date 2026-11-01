@@ -39,9 +39,9 @@ enum DropboxFailure {
             case .oauthError: return .reconnect
             case .urlSessionError(let error):
                 if (error as NSError).code == URLError.timedOut.rawValue {
-                    return .message("The Dropbox request timed out. Check your connection and retry.")
+                    return .offline("The Dropbox request timed out. Check your connection and retry.")
                 }
-                return .message("Could not reach Dropbox. Check your internet connection and retry.")
+                return .offline("Could not reach Dropbox. Check your internet connection and retry.")
             case .fileAccessError:
                 return .message("Could not save the Dropbox download. Check available storage and retry.")
             case .requestObjectDeallocated, .unexpectedState, .other:

@@ -47,11 +47,18 @@ import SwiftyDropbox
     var error: String?
     private let driver: (any OAuthDriver)?
     private let key: String
+    private let defaults: UserDefaults
+    private static let accountKey = "mobile.dropbox.account"
     init(key: String = Bundle.main.object(forInfoDictionaryKey: "DropboxAppKey") as? String ?? "unconfigured",
-         driver: (any OAuthDriver)? = nil) {
+         driver: (any OAuthDriver)? = nil, defaults: UserDefaults = .standard) {
         self.key = key
+        self.defaults = defaults
         self.driver = driver ?? (key != "unconfigured" && !key.isEmpty ? SDKOAuthDriver(key: key) : nil)
         state = self.driver == nil ? .unconfigured : self.driver!.hasSession ? .connected : .disconnected
+        // The remembered account lets Recents open saved renderings after an offline launch.
+        if state == .connected, let saved = defaults.dictionary(forKey: Self.accountKey) as? [String: String] {
+            accountID = saved["id"]; accountName = saved["name"]
+        }
     }
     func connect() { error = nil; guard let driver else { return }; state = .connecting; driver.connect() }
     @discardableResult func handle(_ url: URL) -> Bool {
@@ -68,11 +75,19 @@ import SwiftyDropbox
             let account = try await client.users.getCurrentAccount().response()
             guard state == .connected else { return }
             accountID = account.accountId; accountName = account.name.displayName
+            defaults.set(["id": account.accountId, "name": account.name.displayName], forKey: Self.accountKey)
+            error = nil
         } catch let error as CallError<Void> {
-            self.error = DropboxFailure.convert(error.typeErased).localizedDescription
+            let failure = DropboxFailure.convert(error.typeErased)
+            // Offline with a remembered account is not an error worth showing.
+            if case .offline = failure, accountID != nil { return }
+            self.error = failure.localizedDescription
         } catch { self.error = "Could not read Dropbox account. Reconnect or retry when online." }
     }
-    func disconnect() { driver?.disconnect(); state = .disconnected; accountID = nil; accountName = nil; error = nil }
+    func disconnect() {
+        driver?.disconnect(); state = .disconnected; accountID = nil; accountName = nil; error = nil
+        defaults.removeObject(forKey: Self.accountKey)
+    }
     func resumeAuthorization() { if state == .connecting, driver?.hasSession == true { state = .connected } }
 }
 

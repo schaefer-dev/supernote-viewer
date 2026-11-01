@@ -11,10 +11,12 @@ import UIKit
     var payload = Data([1, 2, 3])
     var wrongRevision = false
     var delay: UInt64 = 0
+    var offline = false
     func list(path: String, cursor: String?) async throws -> FolderPage {
         calls.append((path, cursor)); return pages.removeFirst()
     }
     func metadata(id: String) async throws -> RemoteEntry {
+        if offline { throw ReaderError.offline("Could not reach Dropbox.") }
         guard let file = files[id] else { throw ReaderError.message("File missing") }
         return file
     }
@@ -186,6 +188,16 @@ private struct FakeRenderer: MobileRendering {
         driver.hasSession = true; driver.callback?(true, nil)
         XCTAssertEqual(subject.state, .connected)
         subject.disconnect(); XCTAssertEqual(subject.state, .disconnected); XCTAssertNil(subject.accountID)
+    }
+    func testRememberedAccountRestoresOnlyForConnectedSession() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(["id": "dbid:synthetic", "name": "Synthetic"], forKey: "mobile.dropbox.account")
+        let connected = MockOAuth(); connected.hasSession = true
+        let restored = DropboxSession(key: "synthetic", driver: connected, defaults: defaults)
+        XCTAssertEqual(restored.accountID, "dbid:synthetic")
+        XCTAssertNil(DropboxSession(key: "synthetic", driver: MockOAuth(), defaults: defaults).accountID)
+        restored.disconnect()
+        XCTAssertNil(defaults.object(forKey: "mobile.dropbox.account"))
     }
     func testRestoredSessionAndCancelledAuthorization() {
         let driver = MockOAuth(); driver.hasSession = true

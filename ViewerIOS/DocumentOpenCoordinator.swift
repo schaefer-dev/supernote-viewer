@@ -31,6 +31,9 @@ struct OpeningMetrics {
     var previewSeconds: TimeInterval?
     var recognitionSeconds: TimeInterval?
     var inputBytes: UInt64 = 0
+    var openedFromCache = false
+    /// Set when Dropbox was unreachable and an older saved rendering is shown.
+    var offlineSavedAt: Date?
 }
 struct DisplayedDocument {
     let document: PDFDocument
@@ -89,10 +92,13 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
     private var task: Task<Void, Never>?
     private var token = CancellationToken()
     private var inputs: LocalInputs?
+    /// Identifies the finished rendering of the current Dropbox open; nil for local documents.
+    private var cacheKey: RenderCacheKey?
     private let renderer: any MobileRendering
     private let recents: RecentDocumentsStore
-    init(recents: RecentDocumentsStore, renderer: any MobileRendering = EngineRenderer()) {
-        self.recents = recents; self.renderer = renderer
+    private let cache: RenderedPDFCache?
+    init(recents: RecentDocumentsStore, renderer: any MobileRendering = EngineRenderer(), cache: RenderedPDFCache? = nil) {
+        self.recents = recents; self.renderer = renderer; self.cache = cache
     }
     func cancel() {
         token.cancel(); task?.cancel(); generation = UUID(); status = nil; recognizing = false
@@ -103,7 +109,7 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
         let sameDocument = self.reference?.id == reference.id
         self.reference = reference; error = nil; warning = nil; missingCompanion = false
         if !sameDocument { displayed = nil }
-        inputs = nil
+        inputs = nil; cacheKey = nil
         page = recents.page(for: reference)
         metrics = OpeningMetrics()
         status = "Preparing document…"
@@ -118,7 +124,7 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
                 try check(operation)
                 guard source.id == reference.fileID else { throw ReaderError.message("Dropbox returned a different document. Refresh the folder.") }
                 self.reference = .remote(source, account: reference.accountID ?? "")
-                var companion: URL?
+                var original: RemoteEntry?
                 if source.isAnnotation && !annotationsOnly {
                     guard !source.path.isEmpty else { throw ReaderError.message("Dropbox did not return the annotations' parent folder. Refresh and retry.") }
                     let entries = try await allEntries(service: service, path: source.parentPath)
@@ -126,8 +132,14 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
                     let fresh = try await service.metadata(id: candidate.id)
                     guard fresh.id == candidate.id, fresh.parentPath == source.parentPath,
                           fresh.name.lowercased() == String(source.name.dropLast(5)).lowercased() else { throw ReaderError.missingCompanion }
-                    companion = try await download(fresh, service: service, workspace: workspace, operation: operation, name: "original.pdf")
+                    original = fresh
                 }
+                try check(operation)
+                if let key = Self.cacheKey(account: reference.accountID, source: source, original: original, annotationsOnly: annotationsOnly) {
+                    cacheKey = key
+                    if try await showCached(key, workspace: workspace, operation: operation) { return }
+                }
+                let companion = try await original.asyncMap { try await self.download($0, service: service, workspace: workspace, operation: operation, name: "original.pdf") }
                 let url = try await download(source, service: service, workspace: workspace, operation: operation, name: "source." + (source.name as NSString).pathExtension)
                 try check(operation)
                 let local = LocalInputs(source: url, companion: companion, workspace: workspace)
@@ -135,8 +147,66 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
                 metrics.downloadSeconds = Date().timeIntervalSince(metrics.started)
                 metrics.inputBytes = source.size + (companion.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? NSNumber }?.uint64Value ?? 0)
                 try await show(local, operation: operation)
-            } catch { fail(error, operation: operation) }
+            } catch {
+                if case ReaderError.offline = error, (try? await showLatestCached(reference, operation: operation)) == true { return }
+                fail(error, operation: operation)
+            }
         }
+    }
+    /// Without a connection the current revision is unknown, so show the newest saved
+    /// rendering and say so, rather than refusing to open the document.
+    private func showLatestCached(_ reference: DocumentReference, operation: UUID) async throws -> Bool {
+        guard let cache, let account = reference.accountID, !account.isEmpty else { return false }
+        let workspace = try Workspace()
+        let directory = workspace.url, fileID = reference.fileID
+        guard let (url, savedAt) = await Task.detached(priority: .userInitiated, operation: {
+            cache.materializeLatest(accountID: account, fileID: fileID, into: directory)
+        }).value else { return false }
+        guard operation == generation else { return false }
+        do { try publish(url, local: LocalInputs(source: url, companion: nil, workspace: workspace), operation: operation) }
+        catch { return false }
+        cacheKey = nil
+        metrics.openedFromCache = true; metrics.offlineSavedAt = savedAt
+        status = nil
+        warning = "Offline: showing the version saved \(savedAt.formatted(date: .abbreviated, time: .shortened)). It may be out of date. Reload when connected."
+        return true
+    }
+    nonisolated static func cacheKey(account: String?, source: RemoteEntry, original: RemoteEntry?, annotationsOnly: Bool) -> RenderCacheKey? {
+        guard let account, !account.isEmpty, let revision = source.revision else { return nil }
+        let companion: RenderCacheKey.Companion
+        if let original {
+            guard let originalRevision = original.revision else { return nil }
+            companion = .original(id: original.id, revision: originalRevision)
+        } else if source.isAnnotation {
+            guard annotationsOnly else { return nil }
+            companion = .annotationsOnly
+        } else { companion = .none }
+        return RenderCacheKey(accountID: account, fileID: source.id, sourceRevision: revision, companion: companion)
+    }
+    /// Displays a finished rendering of exactly these revisions, if one is cached.
+    private func showCached(_ key: RenderCacheKey, workspace: Workspace, operation: UUID) async throws -> Bool {
+        guard let cache else { return false }
+        let directory = workspace.url
+        guard let url = await Task.detached(priority: .userInitiated, operation: { cache.materialize(key, into: directory) }).value else { return false }
+        try check(operation)
+        do {
+            try publish(url, local: LocalInputs(source: url, companion: nil, workspace: workspace), operation: operation)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // A damaged cache entry falls back to downloading and rendering again.
+            try? FileManager.default.removeItem(at: url)
+            return false
+        }
+        metrics.openedFromCache = true
+        metrics.downloadSeconds = nil
+        status = nil
+        return true
+    }
+    /// Records a completed output in the cache without blocking the main actor.
+    private func storeCompleted(_ url: URL, operation: UUID) {
+        guard operation == generation, let cache, let key = cacheKey else { return }
+        Task.detached(priority: .utility) { cache.store(url, for: key) }
     }
     private func download(_ entry: RemoteEntry, service: any DropboxService, workspace: Workspace, operation: UUID, name: String) async throws -> URL {
         let partial = workspace.url.appendingPathComponent(name + ".partial")
@@ -187,6 +257,7 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
     private func show(_ local: LocalInputs, operation: UUID) async throws {
         if local.source.pathExtension.lowercased() == "pdf" {
             try publish(local.source, local: local, operation: operation)
+            storeCompleted(local.source, operation: operation)
             status = nil
             return
         }
@@ -204,6 +275,7 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
             let searchable = local.workspace.url.appendingPathComponent("searchable-\(UUID().uuidString).pdf")
             try await renderer.render(local, to: searchable, recognize: true, token: token, progress: progress(operation))
             try publish(searchable, local: local, operation: operation)
+            storeCompleted(searchable, operation: operation)
             metrics.recognitionSeconds = Date().timeIntervalSince(started)
             recognizing = false; status = nil; warning = nil
         } catch {
@@ -256,5 +328,12 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
     }
     func foreground() {
         if warning == "Recognition paused while the app is in the background." { retryRecognition() }
+    }
+}
+
+private extension Optional {
+    func asyncMap<T>(_ transform: (Wrapped) async throws -> T) async rethrows -> T? {
+        guard let self else { return nil }
+        return try await transform(self)
     }
 }

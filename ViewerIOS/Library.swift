@@ -26,10 +26,11 @@ struct FolderPage: Sendable {
 }
 
 enum ReaderError: LocalizedError {
-    case message(String), missingCompanion, reconnect, rateLimited(Date)
+    /// Dropbox could not be reached; a saved rendering may still be shown.
+    case message(String), offline(String), missingCompanion, reconnect, rateLimited(Date)
     var errorDescription: String? {
         switch self {
-        case .message(let message): return message
+        case .message(let message), .offline(let message): return message
         case .missingCompanion: return "The original PDF is missing from this folder. Retry after syncing it, or choose Open Annotations Only."
         case .reconnect: return "Dropbox authorization is unavailable. Connect or reconnect your account."
         case .rateLimited(let date): return "Dropbox is busy. Retry after \(date.formatted(date: .omitted, time: .standard))."

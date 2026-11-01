@@ -35,7 +35,7 @@ import UniformTypeIdentifiers
     var importError: String?
     init() {
         Workspace.cleanAbandoned()
-        opener = DocumentOpenCoordinator(recents: recents)
+        opener = DocumentOpenCoordinator(recents: recents, cache: .shared)
         reader.pageChanged = { [weak self] page in self?.opener.page = page; self?.opener.savePosition() }
     }
     static var exampleURLs: [URL] {
@@ -46,6 +46,12 @@ import UniformTypeIdentifiers
     func openExample(_ url: URL) {
         let companion = url.pathExtension == "mark" ? url.deletingPathExtension() : nil
         opener.openLocal(.init(source: .example, accountID: nil, fileID: url.lastPathComponent, name: url.lastPathComponent), source: url, companion: companion)
+    }
+    /// Disconnecting removes the account's cached document renderings from this device.
+    func disconnect() {
+        opener.cancel()
+        if let account = session.accountID { RenderedPDFCache.shared.removeAll(accountID: account) }
+        session.disconnect()
     }
     func openRemote(_ entry: RemoteEntry, annotationsOnly: Bool = false) {
         guard let account = session.accountID else { importError = "Connect Dropbox and load your account before opening a file."; return }

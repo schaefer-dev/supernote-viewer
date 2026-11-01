@@ -93,7 +93,7 @@ private struct DropboxLanding: View {
                     Menu("Account", systemImage: "person.crop.circle") {
                         Text(library.session.accountName ?? "Dropbox")
                         Button("Choose Library Folder") { choosingRoot = true }
-                        Button("Disconnect", role: .destructive) { library.opener.cancel(); library.session.disconnect() }
+                        Button("Disconnect", role: .destructive) { library.disconnect() }
                     }
                 }
             }
