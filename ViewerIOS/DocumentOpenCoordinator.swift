@@ -162,6 +162,7 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
                 guard source.id == reference.fileID else { throw ReaderError.message("Dropbox returned a different document. Refresh the folder.") }
                 self.reference = .remote(source, account: reference.accountID ?? "")
                 var original: RemoteEntry?
+                var previewShown = false
                 if source.isAnnotation && !annotationsOnly {
                     guard !source.path.isEmpty else { throw ReaderError.message("Dropbox did not return the annotations' parent folder. Refresh and retry.") }
                     original = try await Self.resolveOriginal(of: source, service: service)
@@ -170,6 +171,8 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
                 if let key = Self.cacheKey(account: reference.accountID, source: source, original: original, annotationsOnly: annotationsOnly) {
                     cacheKey = key
                     if try await showCached(key, workspace: workspace, operation: operation) { return }
+                    // A synced preview shows at once; recognition then upgrades it below.
+                    previewShown = try await showCached(key.preview, workspace: workspace, operation: operation)
                 }
                 let companion = try await original.asyncMap { try await self.download($0, service: service, workspace: workspace, operation: operation, name: "original.pdf") }
                 let url = try await download(source, service: service, workspace: workspace, operation: operation, name: "source." + (source.name as NSString).pathExtension)
@@ -178,7 +181,8 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
                 inputs = local
                 metrics.downloadSeconds = Date().timeIntervalSince(metrics.started)
                 metrics.inputBytes = source.size + (companion.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? NSNumber }?.uint64Value ?? 0)
-                try await show(local, operation: operation)
+                if previewShown { await enhance(local, operation: operation) }
+                else { try await show(local, operation: operation) }
             } catch {
                 if case ReaderError.offline = error, (try? await showLatestCached(reference, operation: operation)) == true { return }
                 fail(error, operation: operation)
@@ -255,7 +259,8 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
         }
         metrics.openedFromCache = true
         metrics.downloadSeconds = nil
-        status = nil
+        // A preview stays on screen while the searchable version is prepared.
+        status = key.recognized ? nil : "Adding searchable handwriting…"
         return true
     }
     /// Records a completed output in the cache without blocking the main actor.

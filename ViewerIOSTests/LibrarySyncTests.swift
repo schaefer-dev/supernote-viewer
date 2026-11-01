@@ -21,6 +21,19 @@ private final class SyncRenderer: MobileRendering, @unchecked Sendable {
     }
 }
 
+/// Records whether each render recognized handwriting.
+private final class RecordingRenderer: MobileRendering, @unchecked Sendable {
+    private let lock = NSLock()
+    private var flags: [Bool] = []
+    var recognizeFlags: [Bool] { lock.withLock { flags } }
+    func render(_ inputs: LocalInputs, to: URL, recognize: Bool, token: CancellationToken,
+                progress: @escaping RenderProgress) async throws {
+        lock.withLock { flags.append(recognize) }
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 100, height: 100))
+        try renderer.pdfData { context in context.beginPage() }.write(to: to)
+    }
+}
+
 @MainActor private final class FakeContinuedProcessing: ContinuedProcessing, ContinuedProcessingHandle {
     var updates: [Double] = []
     var finished: Bool?
@@ -45,48 +58,85 @@ private final class SyncRenderer: MobileRendering, @unchecked Sendable {
         XCTFail("Condition did not become true")
     }
 
-    func testPlanSkipsSavedDocumentsAndRunSyncsTheRest() async throws {
+    func testTwoPassesMakeEverythingReadableThenSearchable() async throws {
         let cache = RenderedPDFCache(root: root)
         let saved = entry("id:saved", "Saved.note"), fresh = entry("id:fresh", "Fresh.note", folder: "/supernote/note/sub")
         let mark = entry("id:mark", "Paper.pdf.mark", folder: "/supernote/document"), pdf = entry("id:pdf", "Paper.pdf", folder: "/supernote/document")
         let orphan = entry("id:orphan", "Lonely.pdf.mark", folder: "/supernote/document")
-        let broken = entry("id:broken", "broken.note")
+        let broken = entry("id:broken", "broken.note"), previewOnly = entry("id:preview", "PreviewOnly.note")
         let folder = RemoteEntry(id: "id:sub", name: "sub", path: "/supernote/note/sub", isFolder: true)
         let service = MockDropbox()
-        service.pages = [.init(entries: [saved, fresh, mark, pdf, orphan, broken, folder], cursor: "end", hasMore: false)]
-        // "Saved" already has its current revision on the device.
+        service.pages = [.init(entries: [saved, fresh, mark, pdf, orphan, broken, previewOnly, folder], cursor: "end", hasMore: false)]
         let input = root.appendingPathComponent("input.pdf")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Data([1]).write(to: input)
-        cache.store(input, for: try XCTUnwrap(DocumentOpenCoordinator.cacheKey(account: "acc", source: saved, original: nil, annotationsOnly: false)))
+        func key(_ entry: RemoteEntry, original: RemoteEntry? = nil) throws -> RenderCacheKey {
+            try XCTUnwrap(DocumentOpenCoordinator.cacheKey(account: "acc", source: entry, original: original, annotationsOnly: false))
+        }
+        // "Saved" is searchable already; "PreviewOnly" is readable but needs recognition.
+        cache.store(input, for: try key(saved))
+        cache.store(input, for: try key(previewOnly).preview)
 
         let background = FakeContinuedProcessing()
-        // "broken" sorts first among the documents to sync, so its render is the one that fails.
+        // Sorted by name (no dates): broken, Fresh, Paper, PreviewOnly. The first render (broken) fails.
         let sync = LibrarySync(cache: cache, renderer: SyncRenderer(failures: 1), scheduler: background)
-        var saves: [String] = []
-        sync.renderingSaved = { saves.append($0.fileID) }
         await sync.check(service: service, account: "acc", root: nil)
         XCTAssertEqual(service.recursiveCalls, 1, "The library is listed recursively")
         XCTAssertEqual(sync.phase, .ready)
         let plan = try XCTUnwrap(sync.plan)
-        XCTAssertEqual(Set(plan.items.map(\.source.id)), ["id:fresh", "id:mark", "id:broken"])
+        XCTAssertEqual(plan.items.map(\.source.id), ["id:broken", "id:fresh", "id:mark", "id:preview"])
+        XCTAssertEqual(plan.readablePass.map(\.source.id), ["id:broken", "id:fresh", "id:mark"])
+        XCTAssertEqual(plan.searchablePass.count, 4)
         XCTAssertEqual(plan.upToDate, 1); XCTAssertEqual(plan.missingOriginals, 1)
-        XCTAssertEqual(plan.items.first { $0.source.id == "id:mark" }?.original?.id, "id:pdf")
 
         sync.start(service: service)
         try await eventually { sync.phase == .finished }
-        XCTAssertEqual(sync.completed, 2)
         XCTAssertEqual(sync.failures, ["broken"], "A failing document is reported and the rest continue")
-        XCTAssertEqual(Set(saves), ["id:fresh", "id:mark"])
-        XCTAssertEqual(service.downloads.map(\.id).sorted(), ["id:broken", "id:fresh", "id:mark", "id:pdf"])
+        XCTAssertTrue(sync.unsearchable.isEmpty)
+        XCTAssertEqual(cache.availability(try key(fresh)), .searchable)
+        XCTAssertEqual(cache.availability(try key(mark, original: pdf)), .searchable)
+        XCTAssertEqual(cache.availability(try key(previewOnly)), .searchable, "Recognition upgrades an existing preview")
+        XCTAssertEqual(cache.availability(try key(broken)), .none)
+        // Downloads overlap within a pass, so compare each pass without its order.
+        let ids = service.downloads.map(\.id)
+        XCTAssertEqual(ids.count, 8)
+        XCTAssertEqual(ids.prefix(4).sorted(), ["id:broken", "id:fresh", "id:mark", "id:pdf"], "Readable pass first")
+        XCTAssertEqual(ids.suffix(4).sorted(), ["id:fresh", "id:mark", "id:pdf", "id:preview"],
+                       "Then the recognition pass; the failed document is not retried")
         XCTAssertEqual(sync.fraction, 1)
         XCTAssertEqual(background.finished, false, "Partial success is reported to iOS")
         XCTAssertFalse(background.updates.isEmpty)
 
-        service.pages = [.init(entries: [saved, fresh, mark, pdf], cursor: "end", hasMore: false)]
+        service.pages = [.init(entries: [saved, fresh, mark, pdf, previewOnly], cursor: "end", hasMore: false)]
         await sync.check(service: service, account: "acc", root: nil)
-        XCTAssertEqual(sync.phase, .finished, "A second check finds nothing left to download")
-        XCTAssertEqual(sync.plan?.upToDate, 3)
+        XCTAssertEqual(sync.phase, .finished, "A second check finds nothing left to do")
+        XCTAssertEqual(sync.plan?.upToDate, 4)
+    }
+
+    func testReadablePassFinishesBeforeRecognitionNewestFirstAndUsesForegroundPriority() async throws {
+        let cache = RenderedPDFCache(root: root)
+        var old = entry("id:old", "Old.note"); old.modified = Date(timeIntervalSince1970: 1_000)
+        var new = entry("id:new", "New.note"); new.modified = Date(timeIntervalSince1970: 9_000)
+        let service = MockDropbox()
+        service.pages = [.init(entries: [old, new], cursor: "end", hasMore: false)]
+        let foreground = RecordingRenderer(), backgroundRenderer = RecordingRenderer()
+        let sync = LibrarySync(cache: cache, renderer: foreground, backgroundRenderer: backgroundRenderer)
+        await sync.check(service: service, account: "acc", root: nil)
+        XCTAssertEqual(sync.plan?.items.map(\.source.id), ["id:new", "id:old"], "Newest documents first")
+        sync.start(service: service)
+        try await eventually { sync.phase == .finished }
+        XCTAssertEqual(foreground.recognizeFlags, [false, false, true, true], "Everything is readable before recognition starts")
+        XCTAssertTrue(backgroundRenderer.recognizeFlags.isEmpty)
+        XCTAssertGreaterThan(sync.timings.rendering + sync.timings.recognizing, 0)
+
+        // In the background the lower-priority renderer is used.
+        var newer = new; newer.revision = "rev2"
+        service.pages = [.init(entries: [old, newer], cursor: "end", hasMore: false)]
+        await sync.check(service: service, account: "acc", root: nil)
+        sync.inForeground = false
+        sync.start(service: service)
+        try await eventually { sync.phase == .finished }
+        XCTAssertEqual(backgroundRenderer.recognizeFlags, [false, true])
     }
 
     func testOfflineStopsSyncAndExpirationCancels() async throws {

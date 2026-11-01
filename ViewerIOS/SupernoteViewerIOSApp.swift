@@ -17,6 +17,7 @@ import UniformTypeIdentifiers
                     #endif
                 }
                 .onChange(of: scenePhase) { _, phase in
+                    library.sync.inForeground = phase == .active
                     if phase == .background { library.opener.savePosition(); library.opener.background() }
                     if phase == .active { library.session.resumeAuthorization(); library.opener.foreground() }
                 }
@@ -43,9 +44,11 @@ import UniformTypeIdentifiers
         Workspace.cleanAbandoned()
         RenderedPDFCache.shared.adoptLegacyRenderings()
         opener = DocumentOpenCoordinator(recents: recents, cache: .shared)
-        // Sync renders on its own lower-priority queue so opening a document never waits behind it.
+        // Sync renders on its own queues so opening a document never waits behind it:
+        // user-initiated while the app is open, utility once it is in the background.
         sync = LibrarySync(cache: .shared,
-                           renderer: EngineRenderer(queue: DispatchQueue(label: "SupernoteLibrarySync", qos: .utility)),
+                           renderer: EngineRenderer(queue: DispatchQueue(label: "SupernoteLibrarySync", qos: .userInitiated)),
+                           backgroundRenderer: EngineRenderer(queue: DispatchQueue(label: "SupernoteLibrarySyncBackground", qos: .utility)),
                            scheduler: SystemContinuedProcessing())
         reader.pageChanged = { [weak self] page in self?.pageChanged(page) }
         opener.renderingSaved = { [weak self] key in self?.renderingSaved(key) }

@@ -21,6 +21,12 @@ struct RenderCacheKey: Hashable, Sendable {
     let sourceRevision: String
     let companion: Companion
     var rendererVersion = PDFRenderer.version
+    /// False for a readable preview without recognized handwriting; sync saves these
+    /// first so a large library becomes readable offline quickly.
+    var recognized = true
+
+    var preview: RenderCacheKey { var key = self; key.recognized = false; return key }
+    var searchable: RenderCacheKey { var key = self; key.recognized = true; return key }
 
     var fileName: String {
         let companionPart: String
@@ -29,7 +35,9 @@ struct RenderCacheKey: Hashable, Sendable {
         case .annotationsOnly: companionPart = "annotations-only"
         case .original(let id, let revision): companionPart = "original:\(id):\(revision)"
         }
-        let identity = ["v1", sourceRevision, companionPart, String(rendererVersion)].joined(separator: "\u{1F}")
+        // Searchable renderings keep the original naming, so earlier saves stay valid.
+        let identity = (["v1", sourceRevision, companionPart, String(rendererVersion)] + (recognized ? [] : ["preview"]))
+            .joined(separator: "\u{1F}")
         return filePrefix + Self.digest(identity) + ".pdf"
     }
     /// Shared by every saved rendering of one Dropbox file, whatever its revision, so the
@@ -80,6 +88,13 @@ final class RenderedPDFCache: Sendable {
 
     func contains(_ key: RenderCacheKey) -> Bool {
         FileManager.default.fileExists(atPath: url(for: key).path)
+    }
+
+    enum Availability: Sendable { case none, preview, searchable }
+    /// What is saved for exactly these revisions.
+    func availability(_ key: RenderCacheKey) -> Availability {
+        if contains(key.searchable) { return .searchable }
+        return contains(key.preview) ? .preview : .none
     }
 
     /// Places the saved PDF for `key` into `directory` and returns its URL, or nil on a miss.

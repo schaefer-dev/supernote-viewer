@@ -22,6 +22,7 @@ struct LibraryView: View {
         if library.session.state == .connected { return .dropbox }
         return library.recents.records.isEmpty ? .examples : .recents
     }
+    private static let recentLimit = 8
     @State private var compactColumn: NavigationSplitViewColumn = .content
     @State private var importing = false
     @State private var importingOriginal = false
@@ -30,8 +31,23 @@ struct LibraryView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     var body: some View {
         NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
-            List(Source.allCases, selection: $source) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }
-                .navigationTitle("Supernote")
+            List(selection: $source) {
+                Section {
+                    ForEach(Source.allCases) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }
+                }
+                // The home screen on iPhone: the latest documents are one tap away.
+                if !library.recents.records.isEmpty {
+                    Section("Recently Opened") {
+                        ForEach(library.recents.records.prefix(Self.recentLimit)) { recent in
+                            Button { library.openRecent(recent); compactColumn = .detail } label: {
+                                RecentRow(library: library, recent: recent)
+                            }
+                            .swipeActions { Button("Remove", systemImage: "trash", role: .destructive) { library.recents.remove(recent) } }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Supernote")
         } content: {
             NavigationStack {
                 Group {
@@ -178,17 +194,24 @@ private struct ExamplesList: View {
     }
 }
 
+/// A recent document with its thumbnail, last page and when it was opened.
+private struct RecentRow: View {
+    @Bindable var library: MobileLibrary
+    let recent: RecentDocument
+    var body: some View {
+        DocumentRow(name: displayName(recent.reference.name), kind: DocumentKind(fileName: recent.reference.name),
+                    detail: "Page \(recent.page + 1) · \(recent.opened.formatted(.relative(presentation: .named)))",
+                    thumbnail: recent.reference.source == .dropbox
+                        ? library.thumbnails.thumbnail(account: recent.reference.accountID, fileID: recent.reference.fileID) : nil)
+    }
+}
+
 private struct RecentsList: View {
     @Bindable var library: MobileLibrary
     let opened: () -> Void
     var body: some View {
         List(library.recents.records) { recent in
-            Button { library.openRecent(recent); opened() } label: {
-                DocumentRow(name: displayName(recent.reference.name), kind: DocumentKind(fileName: recent.reference.name),
-                            detail: "Page \(recent.page + 1) · \(recent.opened.formatted(.relative(presentation: .named)))",
-                            thumbnail: recent.reference.source == .dropbox
-                                ? library.thumbnails.thumbnail(account: recent.reference.accountID, fileID: recent.reference.fileID) : nil)
-            }
+            Button { library.openRecent(recent); opened() } label: { RecentRow(library: library, recent: recent) }
             .swipeActions { Button("Remove", systemImage: "trash", role: .destructive) { library.recents.remove(recent) } }
         }
         .navigationTitle("Recents")
@@ -337,25 +360,35 @@ struct SyncCard: View {
                     Label("Download for offline use", systemImage: "arrow.down.circle").font(.headline)
                     Text(readyText(plan)).font(.callout).foregroundStyle(.secondary)
                     HStack {
-                        Button("Download \(plan.items.count)") { sync.start(service: library.service) }.buttonStyle(.borderedProminent)
+                        Button("Sync \(plan.items.count)") { sync.start(service: library.service) }.buttonStyle(.borderedProminent)
                         Button("Not Now") { sync.dismiss() }.buttonStyle(.bordered)
                     }
                 }
             case .running:
                 HStack {
-                    Label("Syncing library", systemImage: "arrow.triangle.2.circlepath").font(.headline)
+                    Label(sync.pass == .readable ? "Making documents readable offline" : "Adding searchable handwriting",
+                          systemImage: sync.pass == .readable ? "arrow.down.circle" : "text.magnifyingglass").font(.headline)
                     Spacer()
                     Button("Cancel") { sync.cancel() }.buttonStyle(.borderless)
                 }
                 ProgressView(value: sync.fraction)
-                Text("\(min(sync.completed + 1, sync.plan?.items.count ?? 0)) of \(sync.plan?.items.count ?? 0) · \(sync.current ?? "")")
+                Text("Step \(sync.pass == .readable ? 1 : 2) of 2 · \(min(sync.completed + 1, sync.passTotal)) of \(sync.passTotal) · \(sync.current ?? "")")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                Text("You can keep reading. Sync continues in the background where iOS allows.")
+                Text(sync.pass == .readable
+                     ? "Documents become readable offline first, newest first. Handwriting search is added in step 2."
+                     : "Everything synced is already readable offline. You can keep reading while search is added.")
                     .font(.caption2).foregroundStyle(.tertiary)
             case .finished, .failed:
                 Label(sync.message ?? "", systemImage: sync.phase == .finished && sync.failures.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     .foregroundStyle(sync.phase == .finished && sync.failures.isEmpty ? .green : .orange)
                     .font(.callout)
+                if sync.phase == .finished, sync.timings != SyncTimings() {
+                    Text(timingText(sync.timings)).font(.caption2).foregroundStyle(.tertiary)
+                }
+                if !sync.unsearchable.isEmpty {
+                    Text("Readable but not searchable: " + sync.unsearchable.prefix(5).joined(separator: ", ") + (sync.unsearchable.count > 5 ? "…" : ""))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if !sync.failures.isEmpty {
                     Text("Not synced: " + sync.failures.prefix(5).joined(separator: ", ") + (sync.failures.count > 5 ? "…" : ""))
                         .font(.caption).foregroundStyle(.secondary)
@@ -371,10 +404,20 @@ struct SyncCard: View {
         .padding(.vertical, 4)
     }
     private func readyText(_ plan: SyncPlan) -> String {
-        var parts = ["\(plan.items.count) documents (\(ByteCountFormatter.string(fromByteCount: Int64(plan.bytes), countStyle: .file))) will be downloaded and their handwriting recognized."]
-        if plan.upToDate > 0 { parts.append("\(plan.upToDate) are already available offline.") }
+        var parts: [String] = []
+        let readable = plan.readablePass.count, searchable = plan.searchablePass.count
+        if readable > 0 {
+            parts.append("\(readable) documents (\(ByteCountFormatter.string(fromByteCount: Int64(plan.downloadBytes), countStyle: .file))) will be downloaded and made readable offline, newest first.")
+        }
+        if searchable > 0 { parts.append("Handwriting search is then added to \(searchable) documents.") }
+        if plan.upToDate > 0 { parts.append("\(plan.upToDate) are already up to date.") }
         if plan.missingOriginals > 0 { parts.append("\(plan.missingOriginals) annotated PDFs are skipped because their original PDF is missing.") }
         return parts.joined(separator: " ")
+    }
+    private func timingText(_ timings: SyncTimings) -> String {
+        let format = Duration.UnitsFormatStyle(allowedUnits: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 2)
+        func text(_ seconds: TimeInterval) -> String { Duration.seconds(seconds.rounded()).formatted(format) }
+        return "Waiting for downloads \(text(timings.waitingForDownloads)) · Rendering \(text(timings.rendering)) · Handwriting recognition \(text(timings.recognizing))"
     }
 }
 

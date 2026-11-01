@@ -142,7 +142,7 @@ struct LibraryItem: Identifiable, Hashable {
         let keyed = items.compactMap { item in
             DocumentOpenCoordinator.cacheKey(account: account, source: item.entry, original: item.original, annotationsOnly: false).map { (item.id, $0) }
         }
-        available = await Task.detached(priority: .utility) { Set(keyed.filter { cache.contains($0.1) }.map(\.0)) }.value
+        available = await Task.detached(priority: .utility) { Set(keyed.filter { cache.availability($0.1) != .none }.map(\.0)) }.value
     }
     var loading = false
     var error: String?

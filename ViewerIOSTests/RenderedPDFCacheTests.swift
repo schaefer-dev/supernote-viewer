@@ -148,6 +148,25 @@ private struct PageRenderer: MobileRendering {
         XCTAssertNil(opener.displayed)
     }
 
+    func testSyncedPreviewOpensInstantlyAndIsUpgraded() async throws {
+        let service = MockDropbox(), file = entry(); service.files[file.id] = file
+        let subject = cache()
+        let key = try XCTUnwrap(DocumentOpenCoordinator.cacheKey(account: "account", source: file, original: nil, annotationsOnly: false))
+        let input = root.appendingPathComponent("preview-input.pdf")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 100, height: 100))
+        try renderer.pdfData { context in context.beginPage() }.write(to: input)
+        subject.store(input, for: key.preview)
+
+        let opener = DocumentOpenCoordinator(recents: store(), renderer: FakeRenderer(delay: 100_000_000), cache: subject)
+        opener.openRemote(.remote(file, account: "account"), service: service)
+        try await eventually { opener.displayed?.url.lastPathComponent.hasPrefix("cached-") == true }
+        XCTAssertNotNil(opener.status, "The preview is shown while search is being added")
+        try await eventually { opener.displayed?.url.lastPathComponent.hasPrefix("searchable") == true && opener.status == nil }
+        try await eventually { subject.availability(key) == .searchable }
+        XCTAssertEqual(service.downloads.count, 1)
+    }
+
     func testFailedRecognitionIsNotCached() async throws {
         let service = MockDropbox(), file = entry(); service.files[file.id] = file
         let opener = DocumentOpenCoordinator(recents: store(), renderer: PageRenderer(failOCR: true), cache: cache())
