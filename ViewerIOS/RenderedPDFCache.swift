@@ -41,50 +41,65 @@ struct RenderCacheKey: Hashable, Sendable {
     }
 }
 
-/// Stores completed, searchable PDFs for Dropbox documents so an unchanged revision reopens
-/// without downloading or rendering again. This is a regenerable cache, not offline storage:
-/// iOS may purge it, and opening still checks Dropbox metadata first.
+/// Keeps the newest completed, searchable PDF of each Dropbox document on the device.
+///
+/// An unchanged revision reopens without downloading or rendering, and the newest rendering
+/// remains readable offline. Renderings live in Application Support (excluded from backup),
+/// so iOS does not purge them; each document keeps only its newest rendering, and the user
+/// can remove everything from Settings.
 final class RenderedPDFCache: Sendable {
     let root: URL
-    let byteLimit: UInt64
 
     static let shared = RenderedPDFCache(
-        root: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("SupernoteRenderedPDFs", isDirectory: true),
-        byteLimit: 1 << 30)
+        root: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("SupernoteRenderings", isDirectory: true))
 
-    init(root: URL, byteLimit: UInt64) {
+    /// Builds 11–14 kept renderings in Caches, where iOS may purge them.
+    static let legacyRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("SupernoteRenderedPDFs", isDirectory: true)
+
+    init(root: URL) {
         self.root = root
-        self.byteLimit = byteLimit
+    }
+
+    /// Moves renderings saved by earlier builds into durable storage, once.
+    func adoptLegacyRenderings(from legacy: URL = RenderedPDFCache.legacyRoot) {
+        guard FileManager.default.fileExists(atPath: legacy.path) else { return }
+        if FileManager.default.fileExists(atPath: root.path) {
+            try? FileManager.default.removeItem(at: legacy)
+        } else {
+            try? FileManager.default.createDirectory(at: root.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if (try? FileManager.default.moveItem(at: legacy, to: root)) == nil { try? FileManager.default.removeItem(at: legacy) }
+        }
+        excludeFromBackup()
     }
 
     private func url(for key: RenderCacheKey) -> URL {
         root.appendingPathComponent(key.accountFolder, isDirectory: true).appendingPathComponent(key.fileName)
     }
 
-    /// Places the cached PDF for `key` into `directory` and returns its URL, or nil on a miss.
-    /// The workspace receives its own link so pruning cannot remove a displayed file.
+    func contains(_ key: RenderCacheKey) -> Bool {
+        FileManager.default.fileExists(atPath: url(for: key).path)
+    }
+
+    /// Places the saved PDF for `key` into `directory` and returns its URL, or nil on a miss.
+    /// The workspace receives its own link so later removal cannot affect a displayed file.
     func materialize(_ key: RenderCacheKey, into directory: URL) -> URL? {
         let cached = url(for: key)
         guard FileManager.default.fileExists(atPath: cached.path) else { return nil }
         let destination = directory.appendingPathComponent("cached-\(UUID().uuidString).pdf")
-        do {
-            try Self.linkOrCopy(cached, to: destination)
-            // The modification date doubles as the last-opened time for pruning.
-            try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: cached.path)
-            return destination
-        } catch {
-            return nil
-        }
+        return (try? Self.linkOrCopy(cached, to: destination)) == nil ? nil : destination
     }
 
-    /// Publishes a completed PDF atomically. Failures are ignored: the cache is an optimization.
+    /// Publishes a completed PDF atomically and removes superseded renderings of the same
+    /// document. Failures are ignored: the document can always be rendered again.
     func store(_ file: URL, for key: RenderCacheKey) {
         let destination = url(for: key)
         let folder = destination.deletingLastPathComponent()
         let staging = folder.appendingPathComponent(".staging-\(UUID().uuidString)")
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            excludeFromBackup()
             try Self.linkOrCopy(file, to: staging)
             if FileManager.default.fileExists(atPath: destination.path) {
                 _ = try FileManager.default.replaceItemAt(destination, withItemAt: staging)
@@ -95,46 +110,57 @@ final class RenderedPDFCache: Sendable {
             try? FileManager.default.removeItem(at: staging)
             return
         }
-        prune()
+        let superseded = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent.hasPrefix(key.filePrefix) && $0.lastPathComponent != key.fileName }
+        for file in superseded { try? FileManager.default.removeItem(at: file) }
     }
 
     /// Places the newest saved rendering of a file into `directory`, regardless of revision.
     /// Only for use when Dropbox cannot confirm the current revision; the result may be outdated.
     func materializeLatest(accountID: String, fileID: String, into directory: URL) -> (url: URL, savedAt: Date)? {
+        guard let newest = latestRendering(accountID: accountID, fileID: fileID) else { return nil }
+        let destination = directory.appendingPathComponent("cached-\(UUID().uuidString).pdf")
+        guard (try? Self.linkOrCopy(newest.url, to: destination)) != nil else { return nil }
+        return (destination, newest.savedAt)
+    }
+
+    /// The newest saved rendering of a file in place, for read-only uses such as thumbnails.
+    func latestRendering(accountID: String, fileID: String) -> (url: URL, savedAt: Date)? {
         let probe = RenderCacheKey(accountID: accountID, fileID: fileID, sourceRevision: "", companion: .none)
         let folder = root.appendingPathComponent(probe.accountFolder, isDirectory: true)
-        // Creation time is when the rendering was produced; modification time tracks last use.
+        // Creation time is when the rendering was produced.
         let keys: Set<URLResourceKey> = [.creationDateKey]
         let candidates = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: Array(keys))) ?? [])
             .filter { $0.pathExtension == "pdf" && $0.lastPathComponent.hasPrefix(probe.filePrefix) }
             .map { (url: $0, created: (try? $0.resourceValues(forKeys: keys).creationDate) ?? .distantPast) }
-        guard let newest = candidates.max(by: { $0.created < $1.created }) else { return nil }
-        let destination = directory.appendingPathComponent("cached-\(UUID().uuidString).pdf")
-        guard (try? Self.linkOrCopy(newest.url, to: destination)) != nil else { return nil }
-        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: newest.url.path)
-        return (destination, newest.created)
+        return candidates.max(by: { $0.created < $1.created }).map { ($0.url, $0.created) }
     }
 
-    /// Removes every cached rendering for an account, e.g. when it disconnects.
+    /// Number of saved documents and their total size, for Settings.
+    func usage() -> (documents: Int, bytes: UInt64) {
+        let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else { return (0, 0) }
+        var count = 0, bytes: UInt64 = 0
+        for case let file as URL in enumerator where file.pathExtension == "pdf" {
+            guard let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
+            count += 1; bytes += UInt64(values.fileSize ?? 0)
+        }
+        return (count, bytes)
+    }
+
+    /// Removes every saved rendering for an account, e.g. when it disconnects.
     func removeAll(accountID: String) {
         let folder = root.appendingPathComponent(RenderCacheKey(accountID: accountID, fileID: "", sourceRevision: "", companion: .none).accountFolder)
         try? FileManager.default.removeItem(at: folder)
     }
 
-    /// Deletes the least recently opened renderings until the cache fits its byte limit.
-    func prune() {
-        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
-        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else { return }
-        var files: [(url: URL, size: UInt64, date: Date)] = []
-        for case let file as URL in enumerator {
-            guard let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true,
-                  file.pathExtension == "pdf", !file.lastPathComponent.hasPrefix(".staging-") else { continue }
-            files.append((file, UInt64(values.fileSize ?? 0), values.contentModificationDate ?? .distantPast))
-        }
-        var total = files.reduce(0) { $0 + $1.size }
-        for file in files.sorted(by: { $0.date < $1.date }) where total > byteLimit {
-            if (try? FileManager.default.removeItem(at: file.url)) != nil { total -= file.size }
-        }
+    /// Removes every saved rendering on the device.
+    func removeEverything() { try? FileManager.default.removeItem(at: root) }
+
+    private func excludeFromBackup() {
+        var url = root
+        var values = URLResourceValues(); values.isExcludedFromBackup = true
+        try? url.setResourceValues(values)
     }
 
     private static func linkOrCopy(_ source: URL, to destination: URL) throws {

@@ -118,21 +118,21 @@ import SwiftyDropbox
     }
     static func entry(_ metadata: Files.Metadata) -> RemoteEntry? {
         if let file = metadata as? Files.FileMetadata {
-            return .init(id: file.id, name: file.name, path: file.pathLower ?? "", isFolder: false, revision: file.rev, size: file.size)
+            return .init(id: file.id, name: file.name, path: file.pathLower ?? "", isFolder: false, revision: file.rev, size: file.size, modified: file.serverModified)
         }
         if let folder = metadata as? Files.FolderMetadata {
             return .init(id: folder.id, name: folder.name, path: folder.pathLower ?? "", isFolder: true)
         }
         return nil
     }
-    func list(path: String, cursor: String?) async throws -> FolderPage {
+    func list(path: String, cursor: String?, recursive: Bool) async throws -> FolderPage {
         let client = try client()
         let result: Files.ListFolderResult
         if let cursor {
             let request = client.files.listFolderContinue(cursor: cursor)
             result = try await response(request, cancel: { request.cancel() })
         } else {
-            let request = client.files.listFolder(path: path, recursive: false)
+            let request = client.files.listFolder(path: path, recursive: recursive)
             result = try await response(request, cancel: { request.cancel() })
         }
         return .init(entries: result.entries.compactMap(Self.entry), cursor: result.cursor, hasMore: result.hasMore)

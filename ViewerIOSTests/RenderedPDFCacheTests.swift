@@ -6,7 +6,7 @@ import UIKit
 private struct PageRenderer: MobileRendering {
     var failOCR = false
     func render(_ inputs: LocalInputs, to: URL, recognize: Bool, token: CancellationToken,
-                progress: @escaping @Sendable (String) -> Void) async throws {
+                progress: @escaping RenderProgress) async throws {
         if recognize && failOCR { throw ReaderError.message("OCR failed") }
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 100, height: 100))
         try renderer.pdfData { context in context.beginPage() }.write(to: to)
@@ -20,7 +20,7 @@ private struct PageRenderer: MobileRendering {
     }
     override func tearDown() { try? FileManager.default.removeItem(at: root) }
 
-    func cache(limit: UInt64 = 1 << 30) -> RenderedPDFCache { RenderedPDFCache(root: root, byteLimit: limit) }
+    func cache() -> RenderedPDFCache { RenderedPDFCache(root: root) }
     func entry(_ id: String = "id:a", name: String = "A.note", path: String = "/notes/a.note", revision: String = "rev1") -> RemoteEntry {
         .init(id: id, name: name, path: path, isFolder: false, revision: revision, size: 3)
     }
@@ -127,7 +127,8 @@ private struct PageRenderer: MobileRendering {
         let folder = root.appendingPathComponent(newerKey.accountFolder)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try FileManager.default.linkItem(at: newer, to: folder.appendingPathComponent(newerKey.fileName))
-        subject.store(older, for: RenderCacheKey(accountID: "account", fileID: "id:a", sourceRevision: "rev1", companion: .none))
+        // Two revisions can coexist when placed outside `store`, e.g. by an earlier build.
+        try FileManager.default.linkItem(at: older, to: folder.appendingPathComponent(RenderCacheKey(accountID: "account", fileID: "id:a", sourceRevision: "rev1", companion: .none).fileName))
         subject.store(try pdf("other"), for: RenderCacheKey(accountID: "account", fileID: "id:other", sourceRevision: "rev9", companion: .none))
 
         let service = MockDropbox(); service.offline = true
@@ -166,9 +167,9 @@ private struct PageRenderer: MobileRendering {
         XCTAssertNil(DocumentOpenCoordinator.cacheKey(account: "a", source: entry(name: "A.pdf.mark"), original: nil, annotationsOnly: false))
     }
 
-    func testDisconnectRemovalAndPruning() throws {
-        let subject = cache(limit: 150)
-        // Inputs and workspaces live outside the cache root, as in the app.
+    func testStoreKeepsOnlyNewestRevisionAndDisplayedLinksSurvive() throws {
+        let subject = cache()
+        // Inputs and workspaces live outside the store, as in the app.
         let outside = FileManager.default.temporaryDirectory.appendingPathComponent("RenderCacheInputs-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: outside) }
         let workspace = outside.appendingPathComponent("ws")
@@ -176,22 +177,36 @@ private struct PageRenderer: MobileRendering {
         func input(_ name: String) throws -> URL {
             let url = outside.appendingPathComponent(name); try Data(repeating: 1, count: 100).write(to: url); return url
         }
-        let old = RenderCacheKey(accountID: "a", fileID: "old", sourceRevision: "r", companion: .none)
-        let new = RenderCacheKey(accountID: "a", fileID: "new", sourceRevision: "r", companion: .none)
+        let old = RenderCacheKey(accountID: "a", fileID: "doc", sourceRevision: "r1", companion: .none)
+        let new = RenderCacheKey(accountID: "a", fileID: "doc", sourceRevision: "r2", companion: .none)
+        let sibling = RenderCacheKey(accountID: "a", fileID: "other", sourceRevision: "r1", companion: .none)
         let other = RenderCacheKey(accountID: "b", fileID: "x", sourceRevision: "r", companion: .none)
         subject.store(try input("old.pdf"), for: old)
+        subject.store(try input("sibling.pdf"), for: sibling)
         let displayed = try XCTUnwrap(subject.materialize(old, into: workspace))
-        // Mark the old rendering as long unopened so it is the pruning candidate.
-        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 0)], ofItemAtPath: displayed.path)
         subject.store(try input("new.pdf"), for: new)
-        XCTAssertNil(subject.materialize(old, into: workspace), "The least recently opened rendering is pruned over the limit")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: displayed.path), "Pruning must not remove a displayed file")
-        XCTAssertNotNil(subject.materialize(new, into: workspace))
+        XCTAssertFalse(subject.contains(old), "A superseded revision of the same document is removed")
+        XCTAssertTrue(subject.contains(new)); XCTAssertTrue(subject.contains(sibling), "Other documents are kept")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: displayed.path), "Removal must not affect a displayed file")
+        XCTAssertEqual(subject.usage().documents, 2)
 
-        let large = cache()
-        large.store(try input("a.pdf"), for: new); large.store(try input("b.pdf"), for: other)
-        large.removeAll(accountID: "a")
-        XCTAssertNil(large.materialize(new, into: workspace))
-        XCTAssertNotNil(large.materialize(other, into: workspace))
+        subject.store(try input("other.pdf"), for: other)
+        subject.removeAll(accountID: "a")
+        XCTAssertFalse(subject.contains(new)); XCTAssertTrue(subject.contains(other))
+        subject.removeEverything()
+        XCTAssertEqual(subject.usage().documents, 0)
+    }
+
+    func testLegacyCacheRenderingsAreAdopted() throws {
+        let legacy = FileManager.default.temporaryDirectory.appendingPathComponent("LegacyRenderings-\(UUID().uuidString)")
+        let key = RenderCacheKey(accountID: "a", fileID: "doc", sourceRevision: "r", companion: .none)
+        let folder = legacy.appendingPathComponent(key.accountFolder)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data([1]).write(to: folder.appendingPathComponent(key.fileName))
+        let subject = cache()
+        subject.adoptLegacyRenderings(from: legacy)
+        XCTAssertTrue(subject.contains(key))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+        XCTAssertEqual(try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
     }
 }

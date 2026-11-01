@@ -14,7 +14,7 @@ import SupernoteKit
             let parsed = try SNFile(url: url)
             let output = workspace.url.appendingPathComponent(UUID().uuidString + ".pdf")
             try await EngineRenderer().render(.init(source: url, companion: nil, workspace: workspace), to: output,
-                                              recognize: false, token: CancellationToken(), progress: { _ in })
+                                              recognize: false, token: CancellationToken(), progress: { _, _ in })
             let pdf = try XCTUnwrap(PDFDocument(url: output), url.lastPathComponent)
             let expected = parsed.fileType == .note ? parsed.pages.count : max(1, parsed.pages.map(\.number).max() ?? 0)
             XCTAssertEqual(pdf.pageCount, expected, url.lastPathComponent)
@@ -26,7 +26,7 @@ import SupernoteKit
         let output = workspace.url.appendingPathComponent("composed.pdf")
         let companion = mark.deletingPathExtension()
         try await EngineRenderer().render(.init(source: mark, companion: companion, workspace: workspace), to: output,
-                                          recognize: false, token: CancellationToken(), progress: { _ in })
+                                          recognize: false, token: CancellationToken(), progress: { _, _ in })
         let pdf = try XCTUnwrap(PDFDocument(url: output)), original = try XCTUnwrap(PDFDocument(url: companion))
         XCTAssertGreaterThanOrEqual(pdf.pageCount, original.pageCount)
         XCTAssertFalse((pdf.string ?? "").isEmpty, "Original PDF text must be searchable before handwriting OCR")
@@ -51,5 +51,5 @@ import SupernoteKit
 }
 private struct RejectRenderer: MobileRendering {
     func render(_ inputs: LocalInputs, to: URL, recognize: Bool, token: CancellationToken,
-                progress: @escaping @Sendable (String) -> Void) async throws { throw ReaderError.message("Ordinary PDFs must bypass rendering") }
+                progress: @escaping RenderProgress) async throws { throw ReaderError.message("Ordinary PDFs must bypass rendering") }
 }

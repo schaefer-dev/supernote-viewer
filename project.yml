@@ -181,7 +181,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.SupernoteViewerIOS
         PRODUCT_NAME: SupernoteViewerIOS
-        CURRENT_PROJECT_VERSION: "13"
+        CURRENT_PROJECT_VERSION: "15"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: Apple Development
@@ -212,6 +212,7 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+        BGTaskSchedulerPermittedIdentifiers: ["dev.schaefer.SupernoteViewerIOS.sync.*"]
     dependencies:
       - package: SupernoteKit
         product: SupernoteKit

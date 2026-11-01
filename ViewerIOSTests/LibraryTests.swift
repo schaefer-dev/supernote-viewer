@@ -12,12 +12,18 @@ import UIKit
     var wrongRevision = false
     var delay: UInt64 = 0
     var offline = false
-    func list(path: String, cursor: String?) async throws -> FolderPage {
+    var metadataRequests: [String] = []
+    var recursiveCalls = 0
+    func list(path: String, cursor: String?, recursive: Bool) async throws -> FolderPage {
+        if offline { throw ReaderError.offline("Could not reach Dropbox.") }
+        if recursive { recursiveCalls += 1 }
         calls.append((path, cursor)); return pages.removeFirst()
     }
     func metadata(id: String) async throws -> RemoteEntry {
         if offline { throw ReaderError.offline("Could not reach Dropbox.") }
-        guard let file = files[id] else { throw ReaderError.message("File missing") }
+        metadataRequests.append(id)
+        // Dropbox accepts either an ID or a case-insensitive path.
+        guard let file = files[id] ?? files.values.first(where: { $0.path == id.lowercased() }) else { throw ReaderError.message("File missing") }
         return file
     }
     func download(_ entry: RemoteEntry, to: URL, progress: @escaping (Double) -> Void) async throws -> RemoteEntry {
@@ -30,11 +36,24 @@ import UIKit
     }
 }
 
-private struct FakeRenderer: MobileRendering {
+@MainActor final class ManualBackgroundTime: BackgroundTime {
+    let grants: Bool
+    private(set) var active = 0
+    private var expirations: [@MainActor () -> Void] = []
+    init(grants: Bool) { self.grants = grants }
+    func begin(expiration: @escaping @MainActor () -> Void) -> Int? {
+        guard grants else { return nil }
+        active += 1; expirations.append(expiration); return active
+    }
+    func end(_ token: Int) { active -= 1 }
+    func expire() { let pending = expirations; expirations = []; pending.forEach { $0() } }
+}
+
+struct FakeRenderer: MobileRendering {
     var failOCR = false
     var delay: UInt64 = 0
     func render(_ inputs: LocalInputs, to: URL, recognize: Bool, token: CancellationToken,
-                progress: @escaping @Sendable (String) -> Void) async throws {
+                progress: @escaping RenderProgress) async throws {
         if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
         if recognize && failOCR { throw ReaderError.message("OCR failed") }
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 100, height: 100))
@@ -75,7 +94,8 @@ private struct FakeRenderer: MobileRendering {
     }
     func testPreviewPrecedesEnhancementAndBackgroundResumesLocally() async throws {
         let service = MockDropbox(); let file = entry(); service.files[file.id] = file
-        let opener = DocumentOpenCoordinator(recents: store(), renderer: FakeRenderer(delay: 80_000_000))
+        // iOS grants no background time here, so recognition pauses immediately.
+        let opener = DocumentOpenCoordinator(recents: store(), renderer: FakeRenderer(delay: 80_000_000), backgroundTime: ManualBackgroundTime(grants: false))
         opener.openRemote(.remote(file, account: "account"), service: service)
         try await eventually { opener.displayed != nil && opener.recognizing }
         XCTAssertEqual(opener.displayed?.url.lastPathComponent.hasPrefix("preview"), true)
@@ -86,6 +106,47 @@ private struct FakeRenderer: MobileRendering {
         try await eventually { opener.status == nil && opener.displayed?.url.lastPathComponent.hasPrefix("searchable") == true }
         XCTAssertEqual(service.downloads.count, 1, "Foreground enhancement must not check or download Dropbox again")
         XCTAssertNil(opener.warning)
+    }
+    func testBackgroundTimeLetsRecognitionFinishAndIsReturned() async throws {
+        let service = MockDropbox(); let file = entry(); service.files[file.id] = file
+        let time = ManualBackgroundTime(grants: true)
+        let opener = DocumentOpenCoordinator(recents: store(), renderer: FakeRenderer(delay: 80_000_000), backgroundTime: time)
+        opener.openRemote(.remote(file, account: "account"), service: service)
+        try await eventually { opener.displayed != nil && opener.recognizing }
+        opener.background()
+        XCTAssertTrue(opener.recognizing, "Recognition continues while iOS grants background time")
+        XCTAssertEqual(time.active, 1)
+        try await eventually { opener.displayed?.url.lastPathComponent.hasPrefix("searchable") == true && !opener.recognizing }
+        XCTAssertEqual(time.active, 0, "Background time is returned as soon as recognition finishes")
+        XCTAssertNil(opener.warning)
+    }
+    func testExpiredBackgroundTimePausesAndForegroundResumes() async throws {
+        let service = MockDropbox(); let file = entry(); service.files[file.id] = file
+        let time = ManualBackgroundTime(grants: true)
+        let opener = DocumentOpenCoordinator(recents: store(), renderer: FakeRenderer(delay: 150_000_000), backgroundTime: time)
+        opener.openRemote(.remote(file, account: "account"), service: service)
+        try await eventually { opener.displayed != nil && opener.recognizing }
+        opener.background()
+        time.expire()
+        XCTAssertFalse(opener.recognizing); XCTAssertEqual(opener.warning, DocumentOpenCoordinator.pausedWarning)
+        XCTAssertEqual(time.active, 0)
+        opener.foreground()
+        try await eventually { opener.displayed?.url.lastPathComponent.hasPrefix("searchable") == true && opener.status == nil }
+        XCTAssertNil(opener.warning)
+    }
+    func testDisplayNamesKindsAndRowDetails() {
+        XCTAssertEqual(displayName("Meeting.note"), "Meeting")
+        XCTAssertEqual(displayName("Paper.PDF.mark"), "Paper")
+        XCTAssertEqual(displayName(".note"), ".note")
+        var mark = entry("id:m", name: "Paper.pdf.mark", path: "/n/paper.pdf.mark"); mark.size = 1_000
+        var pdf = entry("id:p", name: "Paper.pdf", path: "/n/paper.pdf"); pdf.size = 2_000
+        let now = Date()
+        mark.modified = now.addingTimeInterval(-3600 * 24 * 40); pdf.modified = now
+        let item = LibraryItem(entry: mark, original: pdf)
+        XCTAssertEqual(item.name, "Paper")
+        XCTAssertTrue(item.detail.hasPrefix("Annotated PDF · \(now.formatted(date: .omitted, time: .shortened))"), item.detail)
+        XCTAssertTrue(item.detail.hasSuffix(ByteCountFormatter.string(fromByteCount: 3_000, countStyle: .file)))
+        XCTAssertEqual(shortModified(now.addingTimeInterval(-86_400), now: now), "Yesterday")
     }
     func testReloadFetchesCompanionOnlyChange() async throws {
         let service = MockDropbox()
@@ -103,6 +164,39 @@ private struct FakeRenderer: MobileRendering {
         opener.openRemote(reference, service: service)
         try await eventually { service.downloads.count == 4 && opener.status == nil }
         XCTAssertEqual(service.downloads.map(\.revision), ["rev1", "rev1", "changed-companion", "rev1"])
+    }
+    func testOriginalPDFIsFoundByPathWithoutListingTheFolder() async throws {
+        let service = MockDropbox()
+        let mark = entry("id:m", name: "A.pdf.mark", path: "/notes/a.pdf.mark")
+        let pdf = entry("id:p", name: "A.pdf", path: "/notes/a.pdf")
+        service.files = [mark.id: mark, pdf.id: pdf]
+        let original = try await DocumentOpenCoordinator.resolveOriginal(of: mark, service: service)
+        XCTAssertEqual(original.id, pdf.id)
+        XCTAssertTrue(service.calls.isEmpty, "A direct path lookup must not list the folder")
+        XCTAssertEqual(service.metadataRequests, ["/notes/A.pdf"])
+    }
+    func testOriginalLookupFallsBackToListingAndKeepsOfflineErrors() async throws {
+        let service = MockDropbox()
+        let mark = entry("id:m", name: "A.pdf.mark", path: "/notes/a.pdf.mark")
+        // The listing knows the original under an ID the direct path lookup cannot reach.
+        let listed = RemoteEntry(id: "id:p", name: "A.pdf", path: "/notes/a.pdf", isFolder: false, revision: "rev1", size: 3)
+        service.files = [mark.id: mark]
+        service.pages = [.init(entries: [mark, listed], cursor: "end", hasMore: false)]
+        do { _ = try await DocumentOpenCoordinator.resolveOriginal(of: mark, service: service); XCTFail("Expected missing metadata") }
+        catch { XCTAssertEqual(service.calls.count, 1, "Fallback lists the folder once") }
+
+        service.offline = true
+        do { _ = try await DocumentOpenCoordinator.resolveOriginal(of: mark, service: service); XCTFail("Expected offline") }
+        catch ReaderError.offline {} catch { XCTFail("Offline must not become a missing companion: \(error)") }
+        XCTAssertEqual(service.calls.count, 1, "Offline must not fall back to listing")
+    }
+    func testDisconnectForgetsOnlyThatAccountsRecentsAndRoot() {
+        let store = store()
+        store.save(.remote(entry(), account: "a"), page: 1); store.save(.remote(entry("id:b"), account: "b"), page: 2)
+        store.setRoot(entry("id:root", name: "Supernote"), account: "a")
+        store.removeAll(account: "a")
+        XCTAssertEqual(store.records.map(\.reference.accountID), ["b"])
+        XCTAssertNil(store.root(account: "a"))
     }
     func testWrongRevisionNeverRenders() async throws {
         let service = MockDropbox(); let file = entry(); service.files[file.id] = file; service.wrongRevision = true

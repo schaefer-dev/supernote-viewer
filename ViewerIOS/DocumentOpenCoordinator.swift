@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import PDFKit
 import SupernoteKit
+import UIKit
 
 final class CancellationToken: @unchecked Sendable {
     private let lock = NSLock()
@@ -41,24 +42,50 @@ struct DisplayedDocument {
     let workspace: Workspace
 }
 
+/// Reports a short status and, when known, the completed fraction (0…1).
+typealias RenderProgress = @Sendable (String, Double?) -> Void
+
 protocol MobileRendering: Sendable {
     func render(_ inputs: LocalInputs, to: URL, recognize: Bool, token: CancellationToken,
-                progress: @escaping @Sendable (String) -> Void) async throws
+                progress: @escaping RenderProgress) async throws
+}
+
+/// Extra execution time after the app leaves the foreground, so recognition can finish.
+@MainActor protocol BackgroundTime {
+    /// Returns a token, or nil when the system grants no extra time.
+    func begin(expiration: @escaping @MainActor () -> Void) -> Int?
+    func end(_ token: Int)
+}
+struct UIKitBackgroundTime: BackgroundTime {
+    nonisolated init() {}
+    func begin(expiration: @escaping @MainActor () -> Void) -> Int? {
+        let id = UIApplication.shared.beginBackgroundTask(withName: "Handwriting recognition") {
+            MainActor.assumeIsolated { expiration() }
+        }
+        return id == .invalid ? nil : id.rawValue
+    }
+    func end(_ token: Int) { UIApplication.shared.endBackgroundTask(UIBackgroundTaskIdentifier(rawValue: token)) }
 }
 struct EngineRenderer: MobileRendering {
-    private static let queue = DispatchQueue(label: "SupernoteMobileRenderer", qos: .userInitiated)
+    /// Serializes renders for documents being read, so obsolete work never overlaps new work.
+    static let readerQueue = DispatchQueue(label: "SupernoteMobileRenderer", qos: .userInitiated)
+    var queue: DispatchQueue = Self.readerQueue
     func render(_ inputs: LocalInputs, to output: URL, recognize: Bool, token: CancellationToken,
-                progress: @escaping @Sendable (String) -> Void) async throws {
+                progress: @escaping RenderProgress) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            Self.queue.async {
+            queue.async {
                 do {
                     if token.isCancelled { throw CancellationError() }
                     let diagnostics = RecognitionDiagnostics()
                     let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("SupernoteOCR")
                     try PDFRenderer.write(contentsOf: inputs.source, companionPDFURL: inputs.companion, to: output,
                         options: RenderOptions(textLayer: recognize, ocrCacheDirectory: cache,
-                            progress: { done, total in progress("Recognizing handwriting… \(done)/\(total)") },
-                            pageProgress: { done, total in if !recognize { progress("Rendering pages… \(done)/\(total)") } },
+                            progress: { done, total in
+                                progress("Recognizing handwriting · page \(min(done + 1, total)) of \(total)", total > 0 ? Double(done) / Double(total) : nil)
+                            },
+                            pageProgress: { done, total in
+                                if !recognize { progress("Rendering pages · \(done) of \(total)", total > 0 ? Double(done) / Double(total) : nil) }
+                            },
                             maximumConcurrentPageWork: 2, isCancelled: { token.isCancelled },
                             recognitionError: { _, _ in diagnostics.recordFailure() }))
                     if diagnostics.failed { throw ReaderError.message("Some handwriting could not be recognized. The readable preview is retained. Retry recognition when active.") }
@@ -82,7 +109,11 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
     var reference: DocumentReference?
     var displayed: DisplayedDocument?
     var status: String?
+    /// Completed fraction of the current step, when it is known.
+    var fraction: Double?
     var error: String?
+    /// The current error is a connectivity failure rather than a document problem.
+    var errorIsOffline = false
     var warning: String?
     var missingCompanion = false
     var recognizing = false
@@ -97,17 +128,23 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
     private let renderer: any MobileRendering
     private let recents: RecentDocumentsStore
     private let cache: RenderedPDFCache?
-    init(recents: RecentDocumentsStore, renderer: any MobileRendering = EngineRenderer(), cache: RenderedPDFCache? = nil) {
-        self.recents = recents; self.renderer = renderer; self.cache = cache
+    private let backgroundTime: any BackgroundTime
+    private var backgroundToken: Int?
+    /// Called on the main actor after a finished rendering has been saved.
+    var renderingSaved: ((RenderCacheKey) -> Void)?
+    static let pausedWarning = "Recognition paused while the app was in the background."
+    init(recents: RecentDocumentsStore, renderer: any MobileRendering = EngineRenderer(), cache: RenderedPDFCache? = nil,
+         backgroundTime: any BackgroundTime = UIKitBackgroundTime()) {
+        self.recents = recents; self.renderer = renderer; self.cache = cache; self.backgroundTime = backgroundTime
     }
     func cancel() {
-        token.cancel(); task?.cancel(); generation = UUID(); status = nil; recognizing = false
+        token.cancel(); task?.cancel(); generation = UUID(); status = nil; fraction = nil; recognizing = false
     }
     private func begin(_ reference: DocumentReference) -> UUID {
         cancel(); token = CancellationToken()
         savePosition()
         let sameDocument = self.reference?.id == reference.id
-        self.reference = reference; error = nil; warning = nil; missingCompanion = false
+        self.reference = reference; error = nil; errorIsOffline = false; warning = nil; missingCompanion = false
         if !sameDocument { displayed = nil }
         inputs = nil; cacheKey = nil
         page = recents.page(for: reference)
@@ -127,12 +164,7 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
                 var original: RemoteEntry?
                 if source.isAnnotation && !annotationsOnly {
                     guard !source.path.isEmpty else { throw ReaderError.message("Dropbox did not return the annotations' parent folder. Refresh and retry.") }
-                    let entries = try await allEntries(service: service, path: source.parentPath)
-                    guard let candidate = entries.first(where: { !$0.isFolder && $0.parentPath == source.parentPath && $0.name.lowercased() == String(source.name.dropLast(5)).lowercased() }) else { throw ReaderError.missingCompanion }
-                    let fresh = try await service.metadata(id: candidate.id)
-                    guard fresh.id == candidate.id, fresh.parentPath == source.parentPath,
-                          fresh.name.lowercased() == String(source.name.dropLast(5)).lowercased() else { throw ReaderError.missingCompanion }
-                    original = fresh
+                    original = try await Self.resolveOriginal(of: source, service: service)
                 }
                 try check(operation)
                 if let key = Self.cacheKey(account: reference.accountID, source: source, original: original, annotationsOnly: annotationsOnly) {
@@ -171,6 +203,29 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
         warning = "Offline: showing the version saved \(savedAt.formatted(date: .abbreviated, time: .shortened)). It may be out of date. Reload when connected."
         return true
     }
+    /// Finds the original PDF beside `X.pdf.mark`. Dropbox paths are case-insensitive, so one
+    /// metadata request by path usually suffices; listing the folder is only the fallback.
+    static func resolveOriginal(of source: RemoteEntry, service: any DropboxService) async throws -> RemoteEntry {
+        let name = String(source.name.dropLast(5))
+        func matches(_ entry: RemoteEntry) -> Bool {
+            !entry.isFolder && entry.parentPath == source.parentPath && entry.name.lowercased() == name.lowercased()
+        }
+        do {
+            let direct = try await service.metadata(id: source.parentPath + "/" + name)
+            if matches(direct) { return direct }
+        } catch ReaderError.offline(let message) {
+            throw ReaderError.offline(message)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // Not found, or an unexpected answer: fall back to the folder listing below.
+        }
+        let entries = try await allEntries(service: service, path: source.parentPath)
+        guard let candidate = entries.first(where: matches) else { throw ReaderError.missingCompanion }
+        let fresh = try await service.metadata(id: candidate.id)
+        guard fresh.id == candidate.id, matches(fresh) else { throw ReaderError.missingCompanion }
+        return fresh
+    }
     nonisolated static func cacheKey(account: String?, source: RemoteEntry, original: RemoteEntry?, annotationsOnly: Bool) -> RenderCacheKey? {
         guard let account, !account.isEmpty, let revision = source.revision else { return nil }
         let companion: RenderCacheKey.Companion
@@ -206,24 +261,21 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
     /// Records a completed output in the cache without blocking the main actor.
     private func storeCompleted(_ url: URL, operation: UUID) {
         guard operation == generation, let cache, let key = cacheKey else { return }
-        Task.detached(priority: .utility) { cache.store(url, for: key) }
+        Task.detached(priority: .utility) { [weak self] in
+            cache.store(url, for: key)
+            await MainActor.run { self?.renderingSaved?(key) }
+        }
     }
     private func download(_ entry: RemoteEntry, service: any DropboxService, workspace: Workspace, operation: UUID, name: String) async throws -> URL {
-        let partial = workspace.url.appendingPathComponent(name + ".partial")
-        let returned = try await service.download(entry, to: partial) { [weak self] fraction in
+        let url = try await downloadSnapshot(entry, service: service, into: workspace.url, name: name) { [weak self] fraction in
             Task { @MainActor in
                 guard self?.generation == operation, self?.status != nil else { return }
-                self?.status = "Downloading \(entry.name)… \(Int(fraction * 100))%"
+                self?.status = "Downloading \(displayName(entry.name))"
+                self?.fraction = fraction
             }
         }
         try check(operation)
-        let size = try FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? NSNumber
-        guard returned.id == entry.id, returned.revision == entry.revision, size?.uint64Value == entry.size else {
-            throw ReaderError.message("The downloaded snapshot did not match Dropbox metadata. Retry opening the document.")
-        }
-        let complete = workspace.url.appendingPathComponent(name)
-        try FileManager.default.moveItem(at: partial, to: complete)
-        return complete
+        return url
     }
     func openLocal(_ reference: DocumentReference, source: URL, companion: URL? = nil, annotationsOnly: Bool = false) {
         let operation = begin(reference)
@@ -270,22 +322,29 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
     }
     private func enhance(_ local: LocalInputs, operation: UUID) async {
         let started = Date()
-        recognizing = true; status = "Recognizing handwriting…"
+        recognizing = true; status = "Recognizing handwriting…"; fraction = nil
         do {
             let searchable = local.workspace.url.appendingPathComponent("searchable-\(UUID().uuidString).pdf")
             try await renderer.render(local, to: searchable, recognize: true, token: token, progress: progress(operation))
             try publish(searchable, local: local, operation: operation)
             storeCompleted(searchable, operation: operation)
             metrics.recognitionSeconds = Date().timeIntervalSince(started)
-            recognizing = false; status = nil; warning = nil
+            recognizing = false; status = nil; fraction = nil; warning = nil
+            endBackgroundTime()
         } catch {
             guard generation == operation else { return }
-            recognizing = false; status = nil
+            recognizing = false; status = nil; fraction = nil
             if !token.isCancelled { warning = error.localizedDescription }
+            endBackgroundTime()
         }
     }
-    private func progress(_ operation: UUID) -> @Sendable (String) -> Void {
-        { [weak self] status in Task { @MainActor in if self?.generation == operation, self?.status != nil { self?.status = status } } }
+    private func progress(_ operation: UUID) -> RenderProgress {
+        { [weak self] status, fraction in
+            Task { @MainActor in
+                guard let self, self.generation == operation, self.status != nil else { return }
+                self.status = status; self.fraction = fraction
+            }
+        }
     }
     private func publish(_ url: URL, local: LocalInputs, operation: UUID) throws {
         try check(operation)
@@ -302,8 +361,9 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
     }
     private func fail(_ error: Error, operation: UUID) {
         guard operation == generation else { return }
-        status = nil
+        status = nil; fraction = nil
         guard !(error is CancellationError) else { return }
+        if case ReaderError.offline = error { errorIsOffline = true }
         missingCompanion = (error as? ReaderError).map { if case .missingCompanion = $0 { return true }; return false } ?? false
         self.error = error.localizedDescription
     }
@@ -323,15 +383,27 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
         let operation = generation
         task = Task { await enhance(inputs, operation: operation) }
     }
+    /// Keeps recognizing in the background while iOS grants time; pauses only when it expires.
     func background() {
-        if recognizing { cancel(); warning = "Recognition paused while the app is in the background." }
+        guard recognizing, backgroundToken == nil else { return }
+        backgroundToken = backgroundTime.begin { [weak self] in self?.backgroundTimeExpired() }
+        if backgroundToken == nil { pauseRecognition() }
     }
     func foreground() {
-        if warning == "Recognition paused while the app is in the background." { retryRecognition() }
+        endBackgroundTime()
+        if warning == Self.pausedWarning { retryRecognition() }
+    }
+    private func backgroundTimeExpired() {
+        if recognizing { pauseRecognition() }
+        endBackgroundTime()
+    }
+    private func pauseRecognition() { cancel(); warning = Self.pausedWarning }
+    private func endBackgroundTime() {
+        if let backgroundToken { backgroundTime.end(backgroundToken); self.backgroundToken = nil }
     }
 }
 
-private extension Optional {
+extension Optional {
     func asyncMap<T>(_ transform: (Wrapped) async throws -> T) async rethrows -> T? {
         guard let self else { return nil }
         return try await transform(self)

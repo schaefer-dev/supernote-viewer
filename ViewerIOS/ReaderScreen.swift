@@ -34,34 +34,53 @@ struct ReaderScreen: View {
     @State private var readerIdentity: String?
     @Environment(\.horizontalSizeClass) private var sizeClass
     struct ShareSnapshot: Identifiable { let id = UUID(); let displayed: DisplayedDocument }
+    @State private var pageIndicatorVisible = false
     var body: some View {
-        VStack(spacing: 0) {
-            if let status = library.opener.status {
-                HStack { ProgressView(); Text(status).font(.caption); Spacer(); Button("Cancel") { library.opener.cancel() } }.padding(10)
-            }
-            if let warning = library.opener.warning {
-                VStack(alignment: .leading) {
-                    Text(warning).font(.caption)
-                    if library.opener.metrics.offlineSavedAt == nil { Button("Retry Recognition") { library.opener.retryRecognition() } }
-                }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(.yellow.opacity(0.15))
-            }
-            if let error = library.opener.error {
-                VStack(spacing: 12) {
-                    Text(error)
-                    Button("Retry") { library.reload() }
-                    if library.opener.missingCompanion { Button("Open Annotations Only") { library.reload(annotationsOnly: true) } }
-                }.padding()
-            }
+        ZStack {
             if library.opener.displayed != nil {
                 PDFReaderView(model: library.reader)
+                    .ignoresSafeArea(edges: .bottom)
                     .accessibilityLabel("Document pages")
-                Text("Page \(library.reader.page + 1) of \(library.reader.document?.pageCount ?? 0)")
-                    .font(.caption).foregroundStyle(.secondary).padding(4)
-            } else if library.opener.status == nil && library.opener.error == nil {
-                ContentUnavailableView("Open a Document", systemImage: "book", description: Text("Choose an example, import a file, or connect Dropbox."))
-            } else { Spacer() }
+                    .overlay(alignment: .top) { banners }
+                    .overlay(alignment: .bottom) { pageIndicator }
+            } else if let error = library.opener.error {
+                ContentUnavailableView {
+                    Label(library.opener.errorIsOffline ? "You're Offline" : "Couldn't Open Document",
+                          systemImage: library.opener.errorIsOffline ? "wifi.slash" : "exclamationmark.triangle")
+                } description: {
+                    Text(library.opener.errorIsOffline
+                         ? "This document hasn't been saved on this iPhone yet. Connect to the internet and try again, or sync your library for offline use."
+                         : error)
+                } actions: {
+                    Button("Try Again") { library.reload() }.buttonStyle(.borderedProminent)
+                    if library.opener.missingCompanion { Button("Open Annotations Only") { library.reload(annotationsOnly: true) } }
+                }
+            } else if let status = library.opener.status {
+                VStack(spacing: 14) {
+                    if let fraction = library.opener.fraction {
+                        ProgressView(value: fraction).frame(maxWidth: 220)
+                    } else { ProgressView().controlSize(.large) }
+                    VStack(spacing: 4) {
+                        Text(displayName(library.opener.reference?.name ?? "")).font(.headline)
+                        Text(status).font(.subheadline).foregroundStyle(.secondary)
+                    }.multilineTextAlignment(.center)
+                    Button("Cancel") { library.opener.cancel() }.buttonStyle(.bordered).padding(.top, 4)
+                }
+                .padding()
+            } else {
+                ContentUnavailableView("Open a Document", systemImage: "book",
+                                       description: Text("Choose a notebook from Dropbox or Recents, or import one from Files."))
+            }
         }
-        .navigationTitle(library.opener.reference?.name ?? "Reader")
+        .background(library.opener.displayed != nil ? Color(.secondarySystemBackground) : Color(.systemBackground))
+        .task(id: library.reader.page) {
+            guard library.opener.displayed != nil else { return }
+            withAnimation(.easeOut(duration: 0.15)) { pageIndicatorVisible = true }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.4)) { pageIndicatorVisible = false }
+        }
+        .navigationTitle(displayName(library.opener.reference?.name ?? "Reader"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if library.opener.displayed != nil {
@@ -110,6 +129,69 @@ struct ReaderScreen: View {
                 }.navigationTitle("Document Information").toolbar { Button("Done") { showingInfo = false } }
             }.presentationDetents([.medium, .large])
         }
+    }
+}
+
+
+extension ReaderScreen {
+    /// Progress and notices float over the page instead of pushing it down.
+    @ViewBuilder var banners: some View {
+        VStack(spacing: 8) {
+            if let status = library.opener.status {
+                ReaderBanner(symbol: nil) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(status).font(.footnote)
+                        if let fraction = library.opener.fraction { ProgressView(value: fraction) }
+                    }
+                } trailing: {
+                    Button("Cancel") { library.opener.cancel() }.font(.footnote)
+                }
+            }
+            if let warning = library.opener.warning {
+                let offline = library.opener.metrics.offlineSavedAt != nil
+                ReaderBanner(symbol: offline ? "wifi.slash" : "exclamationmark.triangle.fill") {
+                    Text(warning).font(.footnote)
+                } trailing: {
+                    if offline { Button("Reload") { library.reload() }.font(.footnote) }
+                    else { Button("Retry") { library.opener.retryRecognition() }.font(.footnote) }
+                }
+            }
+            if let error = library.opener.error {
+                ReaderBanner(symbol: library.opener.errorIsOffline ? "wifi.slash" : "exclamationmark.triangle.fill") {
+                    Text(error).font(.footnote)
+                } trailing: {
+                    Button("Retry") { library.reload() }.font(.footnote)
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.top, 8)
+        .frame(maxWidth: 560)
+    }
+    var pageIndicator: some View {
+        Text("\(library.reader.page + 1) of \(library.reader.document?.pageCount ?? 0)")
+            .font(.footnote.monospacedDigit().weight(.medium))
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .background(.regularMaterial, in: Capsule())
+            .padding(.bottom, 16)
+            .opacity(pageIndicatorVisible ? 1 : 0)
+            .accessibilityLabel("Page \(library.reader.page + 1) of \(library.reader.document?.pageCount ?? 0)")
+            .allowsHitTesting(false)
+    }
+}
+
+private struct ReaderBanner<Content: View, Trailing: View>: View {
+    let symbol: String?
+    @ViewBuilder let content: Content
+    @ViewBuilder let trailing: Trailing
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            if let symbol { Image(systemName: symbol).foregroundStyle(.secondary) }
+            content.frame(maxWidth: .infinity, alignment: .leading)
+            trailing
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
     }
 }
 
