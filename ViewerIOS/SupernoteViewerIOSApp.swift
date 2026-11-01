@@ -231,6 +231,11 @@ import Network
     }
 }
 
+enum FavoriteThumbnailSettings {
+    /// When true (the default), page favorites preview their bookmarked page instead of the first page.
+    static let bookmarkedPageKey = "mobile.favoriteThumbnailShowsBookmarkedPage"
+}
+
 enum AutoSyncSettings {
     static let enabledKey = "mobile.autoSync"
     static let wifiOnlyKey = "mobile.autoSyncWiFiOnly"

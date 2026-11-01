@@ -229,3 +229,55 @@ private struct PageRenderer: MobileRendering {
         XCTAssertEqual(try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
     }
 }
+
+@MainActor final class ThumbnailStoreTests: XCTestCase {
+    var root: URL!
+    override func setUp() {
+        root = FileManager.default.temporaryDirectory.appendingPathComponent("ThumbnailTests-\(UUID().uuidString)")
+    }
+    override func tearDown() { try? FileManager.default.removeItem(at: root) }
+
+    /// Stores a rendering whose pages are filled with the given colors.
+    func storeRendering(_ colors: [UIColor], in cache: RenderedPDFCache) throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("thumb-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let bounds = CGRect(x: 0, y: 0, width: 90, height: 120)
+        try UIGraphicsPDFRenderer(bounds: bounds).pdfData { context in
+            for color in colors { context.beginPage(); color.setFill(); context.fill(bounds) }
+        }.write(to: file)
+        cache.store(file, for: .init(accountID: "acct", fileID: "id:a", sourceRevision: UUID().uuidString, companion: .none))
+    }
+    func image(_ store: ThumbnailStore, page: Int) async throws -> UIImage {
+        for _ in 0..<300 {
+            if let image = store.thumbnail(account: "acct", fileID: "id:a", page: page) { return image }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail("Thumbnail did not render"); throw CancellationError()
+    }
+    func isDark(_ store: ThumbnailStore, page: Int) async throws -> Bool { centerIsDark(try await image(store, page: page)) }
+    func centerIsDark(_ image: UIImage) -> Bool {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1), format: format)
+        let pixel = renderer.image { _ in image.draw(in: CGRect(x: -image.size.width / 2, y: -image.size.height / 2, width: image.size.width, height: image.size.height)) }
+        guard let data = pixel.cgImage?.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else { return false }
+        return Int(bytes[0]) + Int(bytes[1]) + Int(bytes[2]) < 3 * 128
+    }
+
+    func testBookmarkedPageFallbackAndInvalidation() async throws {
+        let cache = RenderedPDFCache(root: root)
+        try storeRendering([.white, .black], in: cache)
+        let store = ThumbnailStore(cache: cache)
+        var dark = try await isDark(store, page: 0); XCTAssertFalse(dark)
+        dark = try await isDark(store, page: 1); XCTAssertTrue(dark)
+        // A page removed since it was bookmarked shows the first page.
+        dark = try await isDark(store, page: 7); XCTAssertFalse(dark)
+
+        // A newer rendering replaces every page thumbnail of the file.
+        try await Task.sleep(for: .milliseconds(20))
+        try storeRendering([.black, .white], in: cache)
+        store.invalidate(account: "acct", fileID: "id:a")
+        XCTAssertNil(store.thumbnail(account: "acct", fileID: "id:a", page: 1))
+        dark = try await isDark(store, page: 1); XCTAssertFalse(dark)
+        dark = try await isDark(store, page: 0); XCTAssertTrue(dark)
+    }
+}

@@ -5,6 +5,7 @@ final class ReaderUITests: XCTestCase {
         let app = Fixture.launch(opening: Fixture.note)
         XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.navigationBars["Example Note"].exists)
+        XCTAssertEqual(app.staticTexts["Document Title"].label, "Example Note", "iPhone shows the full name below the bar")
         let reader = XCTAttachment(screenshot: app.screenshot()); reader.name = "Reader"; reader.lifetime = .keepAlways; add(reader)
         app.buttons["Pages and Titles"].tap()
         XCTAssertTrue(app.buttons["Titles"].waitForExistence(timeout: 10))

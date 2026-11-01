@@ -2,8 +2,10 @@ import Observation
 import PDFKit
 import UIKit
 
-/// First-page thumbnails of saved renderings, generated off the main actor on demand.
-/// Documents that were never opened or synced have no thumbnail and show their kind's symbol.
+/// Page thumbnails of saved renderings, generated off the main actor on demand. Lists show the
+/// first page; page favorites can show their bookmarked page. A page that no longer exists falls
+/// back to the first page. Documents that were never opened or synced have no thumbnail and show
+/// their kind's symbol.
 @Observable @MainActor final class ThumbnailStore {
     private var images: [String: UIImage] = [:]
     @ObservationIgnored private var requested: Set<String> = []
@@ -12,16 +14,17 @@ import UIKit
 
     init(cache: RenderedPDFCache) { self.cache = cache }
 
-    func thumbnail(account: String?, fileID: String) -> UIImage? {
+    func thumbnail(account: String?, fileID: String, page index: Int = 0) -> UIImage? {
         guard let account else { return nil }
-        let key = Self.key(account, fileID)
+        let key = Self.key(account, fileID, index)
         if let image = images[key] { return image }
         if requested.insert(key).inserted {
             let cache = self.cache
             Task {
                 let image = await Task.detached(priority: .utility) { () -> UIImage? in
                     guard let latest = cache.latestRendering(accountID: account, fileID: fileID),
-                          let page = PDFDocument(url: latest.url)?.page(at: 0) else { return nil }
+                          let document = PDFDocument(url: latest.url),
+                          let page = document.page(at: index) ?? document.page(at: 0) else { return nil }
                     return page.thumbnail(of: Self.size, for: .mediaBox)
                 }.value
                 if let image { images[key] = image }
@@ -30,14 +33,16 @@ import UIKit
         return nil
     }
 
-    /// Forgets a thumbnail after a newer rendering is saved.
+    /// Forgets every page thumbnail of a file after a newer rendering is saved.
     func invalidate(account: String, fileID: String) {
-        let key = Self.key(account, fileID)
-        requested.remove(key); images[key] = nil
+        let prefix = Self.filePrefix(account, fileID)
+        requested = requested.filter { !$0.hasPrefix(prefix) }
+        for key in images.keys where key.hasPrefix(prefix) { images[key] = nil }
     }
     func removeAll() { requested.removeAll(); images.removeAll() }
 
-    private nonisolated static func key(_ account: String, _ fileID: String) -> String { account + "\u{1F}" + fileID }
+    private nonisolated static func filePrefix(_ account: String, _ fileID: String) -> String { account + "\u{1F}" + fileID + "\u{1F}" }
+    private nonisolated static func key(_ account: String, _ fileID: String, _ page: Int) -> String { filePrefix(account, fileID) + String(page) }
 }
 
 /// Page thumbnails for the reader's page grid. Pages render off the main actor from a private copy

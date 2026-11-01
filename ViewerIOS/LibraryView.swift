@@ -528,6 +528,7 @@ private struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(AutoSyncSettings.enabledKey) private var autoSync = false
     @AppStorage(AutoSyncSettings.wifiOnlyKey) private var autoSyncWiFiOnly = true
+    @AppStorage(FavoriteThumbnailSettings.bookmarkedPageKey) private var showsBookmarkedPage = true
     @State private var usage: (documents: Int, bytes: UInt64)?
     @State private var confirmingRemoval = false
     @State private var confirmingDisconnect = false
@@ -561,6 +562,11 @@ private struct SettingsView: View {
                     }
                 } header: { Text("Sync") } footer: {
                     Text("Downloads new and changed documents from your library folder each time Supernote Viewer opens, so they are ready to read offline.")
+                }
+                Section {
+                    Toggle("Show Bookmarked Page", isOn: $showsBookmarkedPage)
+                } header: { Text("Favorites") } footer: {
+                    Text("Favorited pages preview the page you bookmarked instead of the document’s first page.")
                 }
                 Section {
                     LabeledContent("Saved documents") {
@@ -617,6 +623,7 @@ private struct FavoriteRow: View {
     @Bindable var library: MobileLibrary
     let favorite: FavoriteDocument
     let opened: () -> Void
+    @AppStorage(FavoriteThumbnailSettings.bookmarkedPageKey) private var showsBookmarkedPage = true
     private var document: String { displayName(favorite.reference.name) }
     private var kind: DocumentKind { DocumentKind(fileName: favorite.reference.name) }
     var body: some View {
@@ -625,7 +632,8 @@ private struct FavoriteRow: View {
                 // A bookmarked page leads with its title, so "that recipe" is findable by name.
                 DocumentRow(name: favorite.title ?? "Page \(page + 1)", kind: kind,
                             detail: "\(document) · Page \(page + 1)",
-                            thumbnail: library.thumbnails.thumbnail(account: favorite.reference.accountID, fileID: favorite.reference.fileID))
+                            thumbnail: library.thumbnails.thumbnail(account: favorite.reference.accountID, fileID: favorite.reference.fileID,
+                                                                    page: showsBookmarkedPage ? page : 0))
             } else {
                 DocumentRow(name: document, kind: kind, detail: kind.label,
                             thumbnail: library.thumbnails.thumbnail(account: favorite.reference.accountID, fileID: favorite.reference.fileID))

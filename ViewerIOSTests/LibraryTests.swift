@@ -296,6 +296,49 @@ struct FakeRenderer: MobileRendering {
         reader.endFind()
         XCTAssertTrue(reader.results.isEmpty); XCTAssertNil(reader.current); XCTAssertEqual(reader.query, "soup")
     }
+    /// Opening another document removes the reader's PDF view while it loads and puts it back when
+    /// the PDF arrives, so the requested page is set before the view is laid out again.
+    func testOtherDocumentOpensAtRequestedPageAfterViewReturns() async throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let reader = ReaderModel()
+        var reported: [Int] = []
+        reader.pageChanged = { reported.append($0) }
+        reader.view.frame = window.bounds; window.addSubview(reader.view); window.isHidden = false
+        defer { window.isHidden = true }
+        reader.replace(try pages(["a", "b"]), page: 0)
+        reader.view.layoutIfNeeded()
+        // The reader shows a progress view while the next document loads.
+        reader.view.removeFromSuperview()
+        reader.reset()
+        reader.replace(try pages(["1", "2", "3", "4", "5", "6"]), page: 4)
+        window.addSubview(reader.view)
+        reader.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(300))
+        let document = try XCTUnwrap(reader.document), current = try XCTUnwrap(reader.view.currentPage)
+        XCTAssertEqual(document.index(for: current), 4, "The view shows the requested page")
+        XCTAssertEqual(reader.page, 4); XCTAssertEqual(reported.last, 4, "No stale first-page report overwrites the position")
+    }
+    func testMatchIsCenteredAboveTheFindBar() async throws {
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 1200)
+        let data = UIGraphicsPDFRenderer(bounds: bounds).pdfData { ctx in
+            for text in ["bread", "soup", "bread"] {
+                ctx.beginPage(); (text as NSString).draw(at: CGPoint(x: 40, y: 900), withAttributes: [.font: UIFont.systemFont(ofSize: 24)])
+            }
+        }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let reader = ReaderModel()
+        reader.view.frame = window.bounds; window.addSubview(reader.view); window.isHidden = false
+        defer { window.isHidden = true }
+        reader.replace(try XCTUnwrap(PDFDocument(data: data)), page: 0)
+        reader.view.layoutIfNeeded()
+        reader.findBarTop = 600
+        reader.findActive = true
+        reader.query = "soup"; reader.search()
+        try await eventually { reader.results.count == 1 && !reader.searching }
+        let match = reader.results[0], page = try XCTUnwrap(match.pages.first)
+        let visible = reader.view.convert(match.bounds(for: page), from: page)
+        XCTAssertEqual(visible.midY, 300, accuracy: 30, "The match sits in the middle of the area above the find bar")
+    }
     func testClosedFindNeverSearches() async throws {
         let reader = ReaderModel()
         reader.query = "soup"

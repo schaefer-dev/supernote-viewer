@@ -28,15 +28,34 @@ struct ReaderScreen: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     struct ShareSnapshot: Identifiable { let id = UUID(); let displayed: DisplayedDocument }
     @State private var pageIndicatorVisible = false
+    private var documentTitle: String { displayName(library.opener.reference?.name ?? "Reader") }
+    private var compactTitle: Bool { sizeClass == .compact && library.opener.displayed != nil }
+    /// The full document name in a slim line under the navigation bar on iPhone.
+    private var titleCaption: some View {
+        Text(documentTitle)
+            .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            .lineLimit(1).truncationMode(.middle)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16).padding(.vertical, 4)
+            .background(Color(.secondarySystemBackground))
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("Document Title")
+    }
     var body: some View {
         ZStack {
             if library.opener.displayed != nil {
                 PDFReaderView(model: library.reader)
                     .ignoresSafeArea(edges: .bottom)
                     .accessibilityLabel("Document pages")
+                    .safeAreaInset(edge: .top, spacing: 0) { if compactTitle { titleCaption } }
                     .overlay(alignment: .top) { banners }
                     .overlay(alignment: .bottom) {
-                        if finding { FindBar(library: library, close: { finding = false }).transition(.move(edge: .bottom).combined(with: .opacity)) }
+                        if finding {
+                            FindBar(library: library, close: { finding = false })
+                                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { library.reader.findBarTop = $0 }
+                                .onDisappear { library.reader.findBarTop = nil }
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
                         else { pageIndicator }
                     }
             } else if let error = library.opener.error {
@@ -76,9 +95,14 @@ struct ReaderScreen: View {
             guard !Task.isCancelled else { return }
             withAnimation(.easeIn(duration: 0.4)) { pageIndicatorVisible = false }
         }
-        .navigationTitle(displayName(library.opener.reference?.name ?? "Reader"))
+        .navigationTitle(documentTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            if compactTitle {
+                // The bar's own title only fits a few characters beside the actions on iPhone; the
+                // caption below the bar shows the full name instead.
+                ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
+            }
             if let showLibrary {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Library", systemImage: "sidebar.left", action: showLibrary)

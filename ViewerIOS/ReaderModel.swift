@@ -154,6 +154,39 @@ private final class SearchGeneration: @unchecked Sendable {
         view.highlightedSelections = nil
         view.highlightedSelections = results.enumerated().filter { $0.offset != index }.map(\.element) + [highlight]
         view.go(to: results[index])
+        center(results[index])
+    }
+    /// Top edge of the find bar in window coordinates while it is shown. The bar and the keyboard
+    /// below it cover the bottom of the page.
+    @ObservationIgnored var findBarTop: CGFloat?
+    /// `go(to:)` only scrolls a match to the edge of the view, where the navigation bar or the find
+    /// bar can hide it. This moves the match to the middle of the area that is actually visible.
+    private func center(_ selection: PDFSelection) {
+        guard let page = selection.pages.first, let scrollView = Self.scrollView(in: view) else { return }
+        view.layoutIfNeeded()
+        let match = scrollView.convert(view.convert(selection.bounds(for: page), from: page), from: view)
+        let inset = scrollView.adjustedContentInset
+        let size = scrollView.bounds.size
+        var top = max(inset.top, view.safeAreaInsets.top), bottom = size.height - max(inset.bottom, view.safeAreaInsets.bottom)
+        if let findBarTop { bottom = min(bottom, scrollView.convert(CGPoint(x: 0, y: findBarTop), from: nil).y - scrollView.bounds.minY) }
+        if bottom - top < 44 { top = 0; bottom = size.height }
+        var offset = scrollView.contentOffset
+        offset.y += match.midY - (scrollView.bounds.minY + (top + bottom) / 2)
+        offset.y = min(max(offset.y, -inset.top), max(-inset.top, scrollView.contentSize.height - size.height + inset.bottom))
+        // When zoomed in, keep the match horizontally on screen too.
+        let left = scrollView.bounds.minX + inset.left, right = scrollView.bounds.maxX - inset.right
+        if match.minX < left || match.maxX > right {
+            offset.x += match.midX - (left + right) / 2
+            offset.x = min(max(offset.x, -inset.left), max(-inset.left, scrollView.contentSize.width - size.width + inset.right))
+        }
+        scrollView.setContentOffset(offset, animated: false)
+    }
+    private static func scrollView(in view: UIView) -> UIScrollView? {
+        for subview in view.subviews {
+            if let scrollView = subview as? UIScrollView { return scrollView }
+            if let nested = scrollView(in: subview) { return nested }
+        }
+        return nil
     }
     private static let matchColor = UIColor.systemYellow.withAlphaComponent(0.35)
     private static let currentMatchColor = UIColor.systemOrange.withAlphaComponent(0.75)
