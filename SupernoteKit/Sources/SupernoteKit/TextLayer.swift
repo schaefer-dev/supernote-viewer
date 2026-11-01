@@ -14,49 +14,66 @@ public struct RecognizedWord: Codable {
 /// searched, selected, copied and highlighted in Preview.
 public enum TextLayer {
     public static var recognitionLanguages = ["de-DE", "en-US"]
-    private static let cacheVersion = "1"
+    private static let cacheVersion = "2"
 
     /// Recognizes every page in parallel, keyed by page number. Pages whose content hash is in
     /// `cacheDirectory` are not recognized again.
     public static func recognize(file: SNFile, cacheDirectory: URL?,
-                                 progress: ((_ done: Int, _ total: Int) -> Void)? = nil) -> [Int: [RecognizedWord]] {
-        let pages = file.pages
+                                 progress: ((_ done: Int, _ total: Int) -> Void)? = nil,
+                                 maximumConcurrentPageWork: Int = 4,
+                                 isCancelled: @escaping () -> Bool = { false },
+                                 recognitionError: ((Int, Error) -> Void)? = nil) -> [Int: [RecognizedWord]] {
         let lock = NSLock()
         var results: [Int: [RecognizedWord]] = [:]
         var done = 0
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = max(1, maximumConcurrentPageWork)
         if let cacheDirectory {
             try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         }
-
-        DispatchQueue.concurrentPerform(iterations: pages.count) { i in
-            let page = pages[i]
-            let cacheURL = cacheDirectory.flatMap { dir in
-                contentHash(of: page, in: file).map { dir.appendingPathComponent("\($0).json") }
-            }
-            var words: [RecognizedWord]?
-            if let cacheURL, let data = try? Data(contentsOf: cacheURL) {
-                words = try? JSONDecoder().decode([RecognizedWord].self, from: data)
-            }
-            if words == nil {
-                let image = LayerCompositor.render(page: page, in: file, background: .white,
-                                                   include: { $0.name != "BGLAYER" })
-                words = image.map(recognize(image:)) ?? []
-                if let cacheURL, let data = try? JSONEncoder().encode(words) {
-                    try? data.write(to: cacheURL, options: .atomic)
+        for page in file.pages {
+            if isCancelled() { break }
+            queue.addOperation {
+                guard !isCancelled() else { return }
+                autoreleasepool {
+                    do {
+                        let words = try cachedRecognition(page: page, file: file, cacheDirectory: cacheDirectory)
+                        lock.withLock { results[page.number] = words }
+                    } catch { recognitionError?(page.number, error) }
+                    let n = lock.withLock { done += 1; return done }
+                    progress?(n, file.pages.count)
                 }
             }
-            lock.lock()
-            results[page.number] = words
-            done += 1
-            let n = done
-            lock.unlock()
-            progress?(n, pages.count)
         }
+        queue.waitUntilAllOperationsAreFinished()
         return results
+    }
+
+    /// Failed recognition is never persisted as a successful empty page.
+    static func cachedRecognition(page: SNPage, file: SNFile, cacheDirectory: URL?,
+                                  recognizeImage: (CGImage) throws -> [RecognizedWord] = recognizeThrowing) throws -> [RecognizedWord] {
+        let cacheURL = cacheDirectory.flatMap { dir in
+            contentHash(of: page, in: file).map { dir.appendingPathComponent("\($0).json") }
+        }
+        if let cacheURL, let data = try? Data(contentsOf: cacheURL),
+           let words = try? JSONDecoder().decode([RecognizedWord].self, from: data) { return words }
+        guard let image = LayerCompositor.render(page: page, in: file, background: .white,
+                                                 include: { $0.name != "BGLAYER" }) else {
+            throw SNError.malformed("could not prepare page \(page.number) for recognition")
+        }
+        let words = try recognizeImage(image)
+        if let cacheURL, let data = try? JSONEncoder().encode(words) {
+            try? data.write(to: cacheURL, options: .atomic)
+        }
+        return words
     }
 
     /// Recognizes handwriting in an image, returning one entry per whitespace-separated word.
     public static func recognize(image: CGImage) -> [RecognizedWord] {
+        (try? recognizeThrowing(image: image)) ?? []
+    }
+
+    public static func recognizeThrowing(image: CGImage) throws -> [RecognizedWord] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
@@ -64,7 +81,7 @@ public enum TextLayer {
         request.recognitionLanguages = recognitionLanguages.filter(supported.contains)
 
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        guard (try? handler.perform([request])) != nil else { return [] }
+        try handler.perform([request])
 
         var words: [RecognizedWord] = []
         for observation in request.results ?? [] {

@@ -23,6 +23,10 @@ xcuserdata/
 *.dSYM.zip
 *.dSYM
 *.xcarchive
+*.app
+*.appex
+*.xcresult
+*.xctestrun
 
 # Swift Package Manager
 .build/
@@ -48,3 +52,18 @@ dist/
 .idea/
 *.swp
 *~
+
+# Local environment files; sanitized examples may be committed.
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Generated local mobile configuration
+ViewerIOS/Configuration/Local.xcconfig
+__pycache__/
+
+# other stuff
+docs/
+CLAUDE.md
+AGENTS.md
