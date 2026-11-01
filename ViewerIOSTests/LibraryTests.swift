@@ -261,6 +261,19 @@ struct FakeRenderer: MobileRendering {
         store.save(.init(source: .imported, accountID: nil, fileID: "local", name: "Local"), page: 8)
         XCTAssertEqual(store.records.count, 2)
     }
+    func testSupernoteFoldersAreSuggestedAndRootChangesAreObservable() {
+        func folder(_ id: String, _ name: String) -> RemoteEntry { .init(id: id, name: name, path: "/" + name, isFolder: true) }
+        let items = LibraryItem.group([folder("id:a", "Apps"), folder("id:s", "Supernote"),
+                                       entry("id:n", name: "supernote.note"), folder("id:b", "My Supernote Backup")])
+        XCTAssertEqual(LibraryItem.supernoteFolders(in: items).map(\.id), ["id:b", "id:s"])
+        let recents = store()
+        let before = recents.rootRevision
+        recents.setRoot(folder("id:s", "Supernote"), account: "a")
+        XCTAssertEqual(recents.root(account: "a")?.id, "id:s")
+        XCTAssertGreaterThan(recents.rootRevision, before)
+        recents.removeAll(account: "a")
+        XCTAssertNil(recents.root(account: "a"))
+    }
 }
 
 @MainActor private final class MockOAuth: OAuthDriver {

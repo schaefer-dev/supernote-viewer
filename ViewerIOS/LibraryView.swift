@@ -1,87 +1,59 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum Source: String, CaseIterable, Identifiable {
-    case dropbox = "Dropbox", recents = "Recents", examples = "Examples"
-    var id: String { rawValue }
-    var icon: String { switch self { case .dropbox: "externaldrive.badge.icloud"; case .recents: "clock"; case .examples: "books.vertical" } }
+/// Screens pushed onto the library column: Home → Browse Dropbox → folders.
+enum LibraryRoute: Hashable {
+    case dropbox
+    case folder(RemoteEntry)
 }
 
 struct LibraryView: View {
     @Bindable var library: MobileLibrary
-    @State private var source: Source?
-    init(library: MobileLibrary) {
-        self.library = library
-        _source = State(initialValue: Self.initialSource(library))
-    }
-    /// Start where the user's documents are: Dropbox when connected, then Recents, then Examples.
-    private static func initialSource(_ library: MobileLibrary) -> Source {
-        #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--start-in-examples") { return .examples }
-        #endif
-        if library.session.state == .connected { return .dropbox }
-        return library.recents.records.isEmpty ? .examples : .recents
-    }
-    private static let recentLimit = 8
-    @State private var compactColumn: NavigationSplitViewColumn = .content
+    @State private var compactColumn: NavigationSplitViewColumn = .sidebar
     @State private var importing = false
     @State private var importingOriginal = false
     @State private var showingSettings = false
     @State private var columns: NavigationSplitViewVisibility = .all
     @Environment(\.horizontalSizeClass) private var sizeClass
     var body: some View {
+        // Two columns: the library (a navigation stack starting at Home) and the reader. On iPhone the
+        // reader is pushed over the library, so Back returns to wherever the document was opened from.
         NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
-            List(selection: $source) {
-                Section {
-                    ForEach(Source.allCases) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }
-                }
-                // The home screen on iPhone: the latest documents are one tap away.
-                if !library.recents.records.isEmpty {
-                    Section("Recently Opened") {
-                        ForEach(library.recents.records.prefix(Self.recentLimit)) { recent in
-                            Button { library.openRecent(recent); compactColumn = .detail } label: {
-                                RecentRow(library: library, recent: recent)
-                            }
-                            .swipeActions { Button("Remove", systemImage: "trash", role: .destructive) { library.recents.remove(recent) } }
+            NavigationStack(path: $library.path) {
+                HomeView(library: library, importFiles: { importing = true }, showSettings: { showingSettings = true },
+                         opened: { compactColumn = .detail })
+                    .navigationDestination(for: LibraryRoute.self) { route in
+                        switch route {
+                        case .dropbox: DropboxLanding(library: library, opened: { compactColumn = .detail })
+                        case .folder(let folder): FolderView(library: library, folder: folder, opened: { compactColumn = .detail })
                         }
                     }
-                }
-            }
-            .navigationTitle("Supernote")
-        } content: {
-            NavigationStack {
-                Group {
-                    switch source ?? .examples {
-                    case .examples: ExamplesList(library: library, opened: { compactColumn = .detail })
-                    case .recents: RecentsList(library: library, opened: { compactColumn = .detail })
-                    case .dropbox: DropboxLanding(library: library, opened: { compactColumn = .detail })
-                    }
-                }
-                // Large titles do not render in this split-view column on iOS 26; inline titles do.
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    // The document list is visible whenever the library is, on iPhone and iPad.
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Menu("More", systemImage: "ellipsis.circle") {
-                            Button("Import from Files…", systemImage: "square.and.arrow.down") { importing = true }
-                            Button("Settings", systemImage: "gearshape") { showingSettings = true }
-                        }
-                    }
-                }
             }
         } detail: {
             ReaderScreen(library: library,
                          showLibrary: sizeClass == .regular && columns == .detailOnly ? { withAnimation { columns = .all } } : nil)
         }
-        // The library columns slide over the page instead of squeezing it.
+        // The library column slides over the page instead of squeezing it.
         .navigationSplitViewStyle(.prominentDetail)
         .onChange(of: library.opener.reference?.id) { _, identity in
             guard identity != nil else { return }
             compactColumn = .detail
-            // Give the page the whole screen; the sidebar button brings the library back.
-            if sizeClass == .regular { withAnimation { columns = .detailOnly } }
+            // Give the page the whole screen; the reader's Library button brings the library back.
+            // A document opened while the app launches (from Files, say) arrives while the split view
+            // is still settling its first layout and resets the columns, so collapse once more after it.
+            guard sizeClass != .compact else { return }
+            withAnimation { columns = .detailOnly }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(500))
+                if library.opener.reference?.id == identity, columns != .detailOnly { withAnimation { columns = .detailOnly } }
+            }
         }
-        .sheet(isPresented: $showingSettings) { SettingsView(library: library, chooseFolder: { source = .dropbox }) }
+        .sheet(isPresented: $showingSettings) { SettingsView(library: library) }
+        // Choosing the Supernote folder is the required step after connecting Dropbox.
+        .sheet(isPresented: Binding(get: { library.needsLibraryFolder && !showingSettings }, set: { _ in })) {
+            NavigationStack { LibraryFolderPicker(library: library, folder: nil, chosen: {}) }
+                .interactiveDismissDisabled()
+        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf, UTType(exportedAs: "dev.schaefer.supernote.note"), UTType(exportedAs: "dev.schaefer.supernote.mark")], allowsMultipleSelection: true) { result in
             switch result { case .success(let urls): library.importFiles(urls); compactColumn = .detail
             case .failure(let error): library.importError = error.localizedDescription }
@@ -109,6 +81,86 @@ struct LibraryView: View {
         .alert("Unable to Open", isPresented: Binding(get: { library.importError != nil }, set: { if !$0 { library.importError = nil } })) {
             Button("OK") { library.importError = nil }
         } message: { Text(library.importError ?? "") }
+    }
+}
+
+// MARK: - Home
+
+/// The start screen: sync status, the way into Dropbox and Files, and recently opened documents.
+private struct HomeView: View {
+    @Bindable var library: MobileLibrary
+    let importFiles: () -> Void
+    let showSettings: () -> Void
+    let opened: () -> Void
+    private static let pageSize = 10
+    @State private var recentLimit = Self.pageSize
+    private var connected: Bool { library.session.state == .connected && library.session.accountID != nil }
+    private var libraryFolderName: String {
+        guard connected else { return library.session.state == .unconfigured ? "Unavailable" : "Not Connected" }
+        return library.libraryRoot?.name ?? "Choose Folder"
+    }
+    var body: some View {
+        List {
+            if library.sync.phase != .idle {
+                Section { SyncCard(library: library) }
+            }
+            Section("Library") {
+                NavigationLink(value: LibraryRoute.dropbox) {
+                    LabeledContent {
+                        Text(libraryFolderName)
+                    } label: {
+                        Label("Browse Dropbox", systemImage: "externaldrive.badge.icloud")
+                    }
+                }
+                .accessibilityIdentifier("Browse Dropbox")
+                Button(action: importFiles) {
+                    Label("Import from Files…", systemImage: "square.and.arrow.down")
+                }
+            }
+            if library.recents.records.isEmpty {
+                if !connected && library.session.state != .unconfigured {
+                    Section {
+                        ContentUnavailableView {
+                            Label("Connect Dropbox", systemImage: "externaldrive.badge.icloud")
+                        } description: {
+                            Text("See the notebooks and annotated PDFs your Supernote syncs to Dropbox. Access is read-only.")
+                        } actions: {
+                            Button("Connect Dropbox") { library.session.connect() }.buttonStyle(.borderedProminent)
+                        }
+                    }
+                } else {
+                    Section("Recently Opened") {
+                        Text("Documents you open appear here, ready to reopen at the page where you stopped.")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Section("Recently Opened") {
+                    ForEach(library.recents.records.prefix(recentLimit)) { recent in
+                        Button { library.openRecent(recent); opened() } label: {
+                            RecentRow(library: library, recent: recent)
+                        }
+                        .swipeActions { Button("Remove", systemImage: "trash", role: .destructive) { library.recents.remove(recent) } }
+                    }
+                    if library.recents.records.count > recentLimit {
+                        Button { withAnimation { recentLimit += Self.pageSize } } label: {
+                            Text("Load More").frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Supernote Viewer")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Settings", systemImage: "gearshape", action: showSettings)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Sync All", systemImage: "arrow.triangle.2.circlepath") { library.startSyncCheck() }
+                    .disabled(!connected || library.libraryRoot == nil || library.sync.isActive)
+            }
+        }
     }
 }
 
@@ -174,26 +226,6 @@ private struct FolderRow: View {
 
 // MARK: - Lists
 
-private struct ExamplesList: View {
-    @Bindable var library: MobileLibrary
-    let opened: () -> Void
-    var body: some View {
-        List {
-            Section {
-                ForEach(MobileLibrary.exampleURLs, id: \.self) { url in
-                    Button { library.openExample(url); opened() } label: {
-                        DocumentRow(name: displayName(url.lastPathComponent), kind: DocumentKind(fileName: url.lastPathComponent), detail: "Example")
-                    }
-                    .accessibilityIdentifier(url.lastPathComponent)
-                }
-            } footer: {
-                Text("Sample notebooks and annotated PDFs that show how Supernote Viewer renders handwriting.")
-            }
-        }
-        .navigationTitle("Examples")
-    }
-}
-
 /// A recent document with its thumbnail, last page and when it was opened.
 private struct RecentRow: View {
     @Bindable var library: MobileLibrary
@@ -206,37 +238,18 @@ private struct RecentRow: View {
     }
 }
 
-private struct RecentsList: View {
-    @Bindable var library: MobileLibrary
-    let opened: () -> Void
-    var body: some View {
-        List(library.recents.records) { recent in
-            Button { library.openRecent(recent); opened() } label: { RecentRow(library: library, recent: recent) }
-            .swipeActions { Button("Remove", systemImage: "trash", role: .destructive) { library.recents.remove(recent) } }
-        }
-        .navigationTitle("Recents")
-        .overlay {
-            if library.recents.records.isEmpty {
-                ContentUnavailableView("No Recent Documents", systemImage: "clock",
-                                       description: Text("Documents you open appear here, ready to reopen at the page where you stopped."))
-            }
-        }
-    }
-}
-
 private struct DropboxLanding: View {
     @Bindable var library: MobileLibrary
     #if DEBUG
-    static let unconfiguredText = "Add your Dropbox app key using scripts/prepare-ios.py. Examples and Files import are ready to use."
+    static let unconfiguredText = "Add your Dropbox app key using scripts/prepare-ios.py. Import from Files is ready to use."
     #else
-    static let unconfiguredText = "Dropbox is not available in this build. Examples and Files import are ready to use."
+    static let unconfiguredText = "Dropbox is not available in this build. Import from Files is ready to use."
     #endif
     let opened: () -> Void
     var body: some View {
         Group {
-            if library.session.state == .connected, let account = library.session.accountID {
-                FolderView(library: library, folder: library.choosingRoot ? nil : library.recents.root(account: account), opened: opened)
-                    .id(library.choosingRoot)
+            if library.session.state == .connected, library.session.accountID != nil {
+                FolderView(library: library, folder: library.libraryRoot, opened: opened)
             } else {
                 ContentUnavailableView {
                     Label("Connect to Dropbox", systemImage: "externaldrive.badge.icloud")
@@ -250,7 +263,8 @@ private struct DropboxLanding: View {
                 }
             }
         }
-        .navigationTitle("Dropbox")
+        .navigationTitle("Browse Dropbox")
+        .navigationBarTitleDisplayMode(.inline)
         .task(id: library.session.state) { await library.session.loadAccount() }
     }
 }
@@ -261,22 +275,13 @@ private struct FolderView: View {
     let opened: () -> Void
     @State private var model = FolderBrowserModel()
     @State private var filter = ""
-    private var isLibraryRoot: Bool {
-        guard let account = library.session.accountID else { return false }
-        return library.recents.root(account: account)?.id == folder?.id && !library.choosingRoot
-    }
+    private var isLibraryRoot: Bool { library.libraryRoot != nil && library.libraryRoot?.id == folder?.id }
     private var visibleItems: [LibraryItem] {
         let query = filter.trimmingCharacters(in: .whitespaces)
         return query.isEmpty ? model.items : model.items.filter { $0.name.localizedStandardContains(query) }
     }
     var body: some View {
         List {
-            if library.choosingRoot {
-                Section {
-                    Text("Browse to the folder that holds your Supernote files, then tap Use This Folder.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-            }
             if isLibraryRoot && library.sync.phase != .idle {
                 Section { SyncCard(library: library) }
             }
@@ -289,7 +294,7 @@ private struct FolderView: View {
             Section {
                 ForEach(visibleItems) { item in
                     if item.entry.isFolder {
-                        NavigationLink(value: item.entry) { FolderRow(name: item.name) }
+                        NavigationLink(value: LibraryRoute.folder(item.entry)) { FolderRow(name: item.name) }
                     } else {
                         Button { library.openRemote(item.entry); opened() } label: {
                             DocumentRow(name: item.name, kind: item.kind, detail: item.detail,
@@ -318,17 +323,10 @@ private struct FolderView: View {
             }
         }
         .searchable(text: $filter, prompt: "Filter by name")
-        .navigationTitle(folder?.name ?? "Dropbox")
-        .navigationDestination(for: RemoteEntry.self) { child in FolderView(library: library, folder: child, opened: opened) }
+        .navigationTitle(folder?.name ?? "Browse Dropbox")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if library.choosingRoot {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Use This Folder") {
-                        if let account = library.session.accountID { library.recents.setRoot(folder, account: account) }
-                        library.choosingRoot = false
-                    }
-                }
-            } else if isLibraryRoot {
+            if isLibraryRoot {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Sync for Offline Use", systemImage: "arrow.down.circle") { library.startSyncCheck() }
                         .disabled(library.sync.isActive)
@@ -342,6 +340,85 @@ private struct FolderView: View {
         }
     }
     private func refresh() async { await model.refresh(service: library.service, folder: folder) }
+}
+
+// MARK: - Library folder
+
+/// Browses Dropbox folders to choose the one the Supernote syncs to. Only folders are listed;
+/// a folder's document count confirms the choice before Use This Folder.
+private struct LibraryFolderPicker: View {
+    @Bindable var library: MobileLibrary
+    let folder: RemoteEntry?
+    let chosen: () -> Void
+    @State private var model = FolderBrowserModel()
+    private var folders: [LibraryItem] { model.items.filter(\.entry.isFolder) }
+    private var documentCount: Int { model.items.count - folders.count }
+    var body: some View {
+        List {
+            if folder == nil {
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Where does your Supernote sync?").font(.headline)
+                        Text("Choose the Dropbox folder your Supernote syncs to, usually “Supernote”. Browse Dropbox and Sync All start there. You can change it later in Settings.")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+                let suggested = LibraryItem.supernoteFolders(in: model.items)
+                if !suggested.isEmpty {
+                    Section("Suggested") {
+                        ForEach(suggested) { item in
+                            HStack {
+                                FolderRow(name: item.name)
+                                Spacer()
+                                Button("Use") { choose(item.entry) }.buttonStyle(.borderedProminent)
+                            }
+                        }
+                    }
+                }
+            }
+            if let error = model.error {
+                Section {
+                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+                    Button("Retry") { Task { await refresh() } }
+                }
+            }
+            Section {
+                ForEach(folders) { item in
+                    NavigationLink {
+                        LibraryFolderPicker(library: library, folder: item.entry, chosen: chosen)
+                    } label: { FolderRow(name: item.name) }
+                }
+                if model.loading && model.items.isEmpty {
+                    HStack { Spacer(); ProgressView("Loading folders…"); Spacer() }.listRowBackground(Color.clear)
+                } else if folders.isEmpty && model.error == nil {
+                    Text("No folders inside").foregroundStyle(.secondary)
+                }
+            } header: {
+                Text(folder == nil ? "All Folders" : "Folders")
+            } footer: {
+                if folder != nil && !model.loading {
+                    Text(documentCount == 1 ? "1 Supernote document in this folder." : "\(documentCount) Supernote documents in this folder.")
+                }
+            }
+        }
+        .navigationTitle(folder?.name ?? "Choose Supernote Folder")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let folder {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Use This Folder") { choose(folder) }
+                }
+            }
+        }
+        .refreshable { await refresh() }
+        .task(id: folder?.id) { await refresh() }
+    }
+    private func refresh() async { await model.refresh(service: library.service, folder: folder) }
+    private func choose(_ entry: RemoteEntry) {
+        library.chooseLibraryFolder(entry)
+        chosen()
+    }
 }
 
 // MARK: - Sync
@@ -425,8 +502,9 @@ struct SyncCard: View {
 
 private struct SettingsView: View {
     @Bindable var library: MobileLibrary
-    let chooseFolder: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(AutoSyncSettings.enabledKey) private var autoSync = false
+    @AppStorage(AutoSyncSettings.wifiOnlyKey) private var autoSyncWiFiOnly = true
     @State private var usage: (documents: Int, bytes: UInt64)?
     @State private var confirmingRemoval = false
     @State private var confirmingDisconnect = false
@@ -436,8 +514,13 @@ private struct SettingsView: View {
                 Section("Dropbox") {
                     if library.session.state == .connected {
                         LabeledContent("Account", value: library.session.accountName ?? "Connected")
-                        LabeledContent("Library folder", value: libraryFolderName)
-                        Button("Choose Library Folder") { library.choosingRoot = true; chooseFolder(); dismiss() }
+                        NavigationLink {
+                            LibraryFolderPicker(library: library, folder: nil, chosen: { dismiss() })
+                        } label: {
+                            LabeledContent("Supernote Folder") {
+                                if let root = library.libraryRoot { Text(root.name) } else { Text("Required").foregroundStyle(.red) }
+                            }
+                        }
                         Button("Disconnect Dropbox", role: .destructive) { confirmingDisconnect = true }
                     } else {
                         Text("Not connected").foregroundStyle(.secondary)
@@ -447,14 +530,20 @@ private struct SettingsView: View {
                     }
                 }
                 Section {
+                    Toggle("Sync All When App Opens", isOn: $autoSync)
+                    Toggle("Only on Wi-Fi", isOn: $autoSyncWiFiOnly).disabled(!autoSync)
+                    if library.session.state == .connected && library.libraryRoot != nil {
+                        Button("Sync All Now") { library.startSyncCheck(); library.path = []; dismiss() }
+                            .disabled(library.sync.isActive)
+                    }
+                } header: { Text("Sync") } footer: {
+                    Text("Downloads new and changed documents from your library folder each time Supernote Viewer opens, so they are ready to read offline.")
+                }
+                Section {
                     LabeledContent("Saved documents") {
                         if let usage {
                             Text("\(usage.documents) · \(ByteCountFormatter.string(fromByteCount: Int64(usage.bytes), countStyle: .file))")
                         } else { ProgressView() }
-                    }
-                    if library.session.state == .connected {
-                        Button("Sync Library for Offline Use") { library.startSyncCheck(); chooseFolder(); dismiss() }
-                            .disabled(library.sync.isActive)
                     }
                     Button("Remove Downloaded Documents", role: .destructive) { confirmingRemoval = true }
                         .disabled(usage?.documents == 0)
@@ -479,10 +568,6 @@ private struct SettingsView: View {
                 Button("Disconnect", role: .destructive) { library.disconnect(); dismiss() }
             } message: { Text("Recents and downloaded documents for this account are removed from this \(deviceName).") }
         }
-    }
-    private var libraryFolderName: String {
-        guard let account = library.session.accountID, let root = library.recents.root(account: account) else { return "All of Dropbox" }
-        return root.name
     }
     private static var version: String {
         let info = Bundle.main.infoDictionary

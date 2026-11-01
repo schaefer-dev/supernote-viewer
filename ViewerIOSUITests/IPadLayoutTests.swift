@@ -1,6 +1,6 @@
 import XCTest
 
-/// iPad-only layout checks: three-column navigation, the reader inspector, rotation,
+/// iPad-only layout checks: library and reader columns, the reader inspector, rotation,
 /// keyboard shortcuts and sheets. Screenshots are kept for visual review.
 final class IPadLayoutTests: XCTestCase {
     override func setUpWithError() throws {
@@ -13,15 +13,11 @@ final class IPadLayoutTests: XCTestCase {
     @MainActor func testIPadLayoutRotationKeyboardAndSheets() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad only") }
         XCUIDevice.shared.orientation = .landscapeLeft
-        let app = XCUIApplication(); app.launchArguments = ["--start-in-examples"]; app.launch()
-
-        let example = app.buttons["Example Titles.note"]
-        XCTAssertTrue(example.waitForExistence(timeout: 10))
-        shot(app, "01 Landscape library")
-        example.tap()
+        let app = Fixture.launch(opening: Fixture.titles)
         XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30))
         sleep(1)
-        XCTAssertFalse(app.buttons["Example Titles.note"].isHittable, "Opening a document gives the page the whole screen")
+        let home = app.navigationBars["Supernote Viewer"]
+        XCTAssertFalse(home.exists && home.isHittable, "Opening a document gives the page the whole screen")
         sleep(2)
         shot(app, "02 Landscape reader")
 
@@ -48,11 +44,10 @@ final class IPadLayoutTests: XCTestCase {
         let showLibrary = app.buttons["Library"].firstMatch
         XCTAssertTrue(showLibrary.waitForExistence(timeout: 5), "The reader offers a way back to the library on iPad")
         showLibrary.tap(); sleep(1)
-        XCTAssertTrue(app.buttons["Example Titles.note"].isHittable, "The library is shown again")
+        XCTAssertTrue(app.navigationBars["Supernote Viewer"].waitForExistence(timeout: 5), "The library is shown again")
+        XCTAssertTrue(app.staticTexts["Recently Opened"].exists, "Home lists the document just opened")
+        XCTAssertTrue(app.buttons["Sync All"].exists, "Sync All sits in the library toolbar")
         shot(app, "06b Library over reader")
-        let more = app.buttons["More"].firstMatch
-        XCTAssertTrue(more.waitForExistence(timeout: 5), "Settings and Import are one menu away whenever the library is visible")
-        more.tap()
         let settings = app.buttons["Settings"].firstMatch
         if settings.waitForExistence(timeout: 5) {
             settings.tap()

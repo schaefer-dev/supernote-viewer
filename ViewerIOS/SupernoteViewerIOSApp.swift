@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import Network
 
 @main struct SupernoteViewerIOSApp: App {
     @State private var library = MobileLibrary()
@@ -11,15 +12,22 @@ import UniformTypeIdentifiers
                     if !library.session.handle(url), url.isFileURL { library.importFiles([url]) }
                 }
                 .task {
+                    #if DEBUG
+                    library.openUITestFixtureIfRequested()
+                    #endif
                     await library.session.loadAccount()
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--diagnose-dropbox") { await DropboxDiagnostics.run() }
                     #endif
+                    await library.autoSyncIfEnabled()
                 }
                 .onChange(of: scenePhase) { _, phase in
                     library.sync.inForeground = phase == .active
                     if phase == .background { library.opener.savePosition(); library.opener.background() }
-                    if phase == .active { library.session.resumeAuthorization(); library.opener.foreground() }
+                    if phase == .active {
+                        library.session.resumeAuthorization(); library.opener.foreground()
+                        Task { await library.autoSyncIfEnabled() }
+                    }
                 }
         }
     }
@@ -33,8 +41,18 @@ import UniformTypeIdentifiers
     let reader = ReaderModel()
     let sync: LibrarySync
     let thumbnails = ThumbnailStore(cache: .shared)
-    /// The Dropbox list is browsing from the root to pick a new library folder.
-    var choosingRoot = false
+    /// The connected account's Supernote folder. Choosing it is required after connecting Dropbox;
+    /// browsing and Sync All start there.
+    var libraryRoot: RemoteEntry? { session.accountID.flatMap { recents.root(account: $0) } }
+    var needsLibraryFolder: Bool { session.state == .connected && session.accountID != nil && libraryRoot == nil }
+    func chooseLibraryFolder(_ folder: RemoteEntry) {
+        guard let account = session.accountID else { return }
+        let first = libraryRoot == nil
+        recents.setRoot(folder, account: account)
+        path = []
+        // After the first choice, have the review card ready on Home.
+        if first { startSyncCheck() }
+    }
     /// Advances whenever a rendering is saved or removed, so offline badges refresh.
     private(set) var savedGeneration = 0
     var pendingImport: URL?
@@ -55,15 +73,24 @@ import UniformTypeIdentifiers
         sync.renderingSaved = { [weak self] key in self?.renderingSaved(key) }
         sync.readerIsBusy = { [weak self] in self?.opener.status != nil && self?.opener.displayed == nil }
     }
-    static var exampleURLs: [URL] {
-        let root = Bundle.main.resourceURL!.appendingPathComponent("examples")
-        let files = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
-        return files.filter { $0.pathExtension == "note" || $0.pathExtension == "mark" || ($0.pathExtension == "pdf" && !files.contains(URL(fileURLWithPath: $0.path + ".mark"))) }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    /// The library column's navigation: Home, then Browse Dropbox and its folders.
+    var path: [LibraryRoute] = []
+    #if DEBUG
+    /// UI tests pass `--ui-test-open <absolute path>` to open a repository fixture; the app bundles no samples.
+    private static var uiTestFixture: URL? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--ui-test-open"), arguments.indices.contains(index + 1) else { return nil }
+        return URL(fileURLWithPath: arguments[index + 1])
     }
-    func openExample(_ url: URL) {
+    func openUITestFixtureIfRequested() {
+        guard let url = Self.uiTestFixture else { return }
+        openFixture(url)
+    }
+    private func openFixture(_ url: URL) {
         let companion = url.pathExtension == "mark" ? url.deletingPathExtension() : nil
-        opener.openLocal(.init(source: .example, accountID: nil, fileID: url.lastPathComponent, name: url.lastPathComponent), source: url, companion: companion)
+        opener.openLocal(.init(source: .fixture, accountID: nil, fileID: url.path, name: url.lastPathComponent), source: url, companion: companion)
     }
+    #endif
     /// Disconnecting removes the account's recents, library folder and saved renderings.
     func disconnect() {
         opener.cancel(); sync.cancel(); sync.dismiss()
@@ -80,8 +107,22 @@ import UniformTypeIdentifiers
         thumbnails.removeAll(); savedGeneration += 1
     }
     func startSyncCheck() {
-        guard let account = session.accountID else { return }
-        Task { await sync.check(service: service, account: account, root: recents.root(account: account)) }
+        guard let account = session.accountID, let root = libraryRoot else { return }
+        Task { await sync.check(service: service, account: account, root: root) }
+    }
+    @ObservationIgnored private var lastAutoSync: Date?
+    /// Runs Sync All without asking when the user enabled it in Settings: at launch, and when the app
+    /// returns to the foreground after a while. A manual Sync All still shows the review card first.
+    func autoSyncIfEnabled(now: Date = Date()) async {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: AutoSyncSettings.enabledKey), let account = session.accountID, let root = libraryRoot,
+              session.state == .connected, !sync.isActive, sync.phase != .ready else { return }
+        if let lastAutoSync, now.timeIntervalSince(lastAutoSync) < AutoSyncSettings.minimumInterval { return }
+        lastAutoSync = now
+        let wifiOnly = defaults.object(forKey: AutoSyncSettings.wifiOnlyKey) as? Bool ?? true
+        if wifiOnly, await !AutoSyncSettings.onUnmeteredNetwork() { return }
+        await sync.check(service: service, account: account, root: root)
+        if sync.phase == .ready { sync.start(service: service) }
     }
     private func renderingSaved(_ key: RenderCacheKey) {
         thumbnails.invalidate(account: key.accountID, fileID: key.fileID)
@@ -104,12 +145,12 @@ import UniformTypeIdentifiers
         opener.openRemote(.remote(entry, account: account), service: service, annotationsOnly: annotationsOnly)
     }
     func openRecent(_ recent: RecentDocument) {
-        if recent.reference.source == .example {
-            if let url = Self.exampleURLs.first(where: { $0.lastPathComponent == recent.reference.fileID }) { openExample(url) }
-        } else {
-            guard session.accountID == recent.reference.accountID else { importError = "Connect the Dropbox account used for this recent document."; return }
-            opener.openRemote(recent.reference, service: service)
-        }
+        #if DEBUG
+        if recent.reference.source == .fixture { openFixture(URL(fileURLWithPath: recent.reference.fileID)); return }
+        #endif
+        guard recent.reference.source == .dropbox else { return }
+        guard session.accountID == recent.reference.accountID else { importError = "Connect the Dropbox account used for this recent document."; return }
+        opener.openRemote(recent.reference, service: service)
     }
     func reload(annotationsOnly: Bool = false) {
         guard let reference = opener.reference else { return }
@@ -137,5 +178,30 @@ import UniformTypeIdentifiers
     }
     func openImport(_ source: URL, companion: URL?, annotationsOnly: Bool = false) {
         opener.openLocal(.init(source: .imported, accountID: nil, fileID: UUID().uuidString, name: source.lastPathComponent), source: source, companion: companion, annotationsOnly: annotationsOnly)
+    }
+}
+
+enum AutoSyncSettings {
+    static let enabledKey = "mobile.autoSync"
+    static let wifiOnlyKey = "mobile.autoSyncWiFiOnly"
+    /// Returning to the app sooner than this does not start another automatic sync.
+    static let minimumInterval: TimeInterval = 15 * 60
+    /// True on Wi-Fi or wired networks; false on cellular, personal hotspots and when offline.
+    static func onUnmeteredNetwork() async -> Bool {
+        await withCheckedContinuation { continuation in
+            let monitor = NWPathMonitor()
+            let once = ResumeOnce()
+            monitor.pathUpdateHandler = { path in
+                guard once.claim() else { return }
+                monitor.cancel()
+                continuation.resume(returning: path.status == .satisfied && !path.isExpensive)
+            }
+            monitor.start(queue: DispatchQueue(label: "SupernoteAutoSyncNetwork"))
+        }
+    }
+    private final class ResumeOnce: @unchecked Sendable {
+        private let lock = NSLock()
+        private var claimed = false
+        func claim() -> Bool { lock.withLock { defer { claimed = true }; return !claimed } }
     }
 }

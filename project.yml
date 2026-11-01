@@ -170,10 +170,6 @@ targets:
     sources:
       - path: ViewerIOS
         excludes: [Configuration]
-      - path: examples
-        name: Examples
-        type: folder
-        buildPhase: resources
     configFiles:
       Debug: ViewerIOS/Configuration/Base.xcconfig
       Release: ViewerIOS/Configuration/Base.xcconfig

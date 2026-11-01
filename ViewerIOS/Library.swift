@@ -121,6 +121,10 @@ struct LibraryItem: Identifiable, Hashable {
         if bytes > 0 { parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) }
         return parts.joined(separator: " · ")
     }
+    /// Folders that look like the Supernote sync folder, offered first when choosing the library folder.
+    static func supernoteFolders(in items: [Self]) -> [Self] {
+        items.filter { $0.entry.isFolder && $0.entry.name.localizedCaseInsensitiveContains("supernote") }
+    }
     static func group(_ entries: [RemoteEntry]) -> [Self] {
         let annotations = entries.filter { $0.isAnnotation }
         let originals = Set(annotations.compactMap { mark in entries.first { !$0.isFolder && $0.parentPath == mark.parentPath && $0.name.lowercased() == String(mark.name.dropLast(5)).lowercased() }?.id })
@@ -164,7 +168,9 @@ struct LibraryItem: Identifiable, Hashable {
 }
 
 struct DocumentReference: Codable, Hashable, Identifiable {
-    enum Source: String, Codable { case dropbox, example, imported }
+    /// `fixture` is a repository file opened by UI tests in debug builds. Its raw value is the one
+    /// former bundled examples used, so their stored recents decode and are then dropped.
+    enum Source: String, Codable { case dropbox, fixture = "example", imported }
     let source: Source
     let accountID: String?
     let fileID: String
@@ -184,17 +190,19 @@ struct RecentDocument: Codable, Identifiable {
 
 @Observable @MainActor final class RecentDocumentsStore {
     private let defaults: UserDefaults
+    static let limit = 100
     var records: [RecentDocument]
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        records = (defaults.data(forKey: "mobile.recents").flatMap { try? JSONDecoder().decode([RecentDocument].self, from: $0) }) ?? []
+        let stored = (defaults.data(forKey: "mobile.recents").flatMap { try? JSONDecoder().decode([RecentDocument].self, from: $0) }) ?? []
+        records = stored.filter { $0.reference.source == .dropbox }
     }
     func page(for reference: DocumentReference) -> Int { records.first { $0.id == reference.id }?.page ?? 0 }
     func save(_ reference: DocumentReference, page: Int) {
         guard reference.source != .imported else { return }
         records.removeAll { $0.id == reference.id }
         records.insert(.init(reference: reference, page: max(0, page), opened: Date()), at: 0)
-        records = Array(records.prefix(30))
+        records = Array(records.prefix(Self.limit))
         if let data = try? JSONEncoder().encode(records) { defaults.set(data, forKey: "mobile.recents") }
     }
     func remove(_ recent: RecentDocument) {
@@ -206,11 +214,16 @@ struct RecentDocument: Codable, Identifiable {
         records.removeAll { $0.reference.accountID == account }
         if let data = try? JSONEncoder().encode(records) { defaults.set(data, forKey: "mobile.recents") }
         defaults.removeObject(forKey: "mobile.root.\(account)")
+        rootRevision += 1
     }
+    /// Advances when a library folder is chosen or forgotten, so views reading `root` refresh.
+    private(set) var rootRevision = 0
     func root(account: String) -> RemoteEntry? {
-        defaults.data(forKey: "mobile.root.\(account)").flatMap { try? JSONDecoder().decode(RemoteEntry.self, from: $0) }
+        _ = rootRevision
+        return defaults.data(forKey: "mobile.root.\(account)").flatMap { try? JSONDecoder().decode(RemoteEntry.self, from: $0) }
     }
     func setRoot(_ folder: RemoteEntry?, account: String) {
         defaults.set(folder.flatMap { try? JSONEncoder().encode($0) }, forKey: "mobile.root.\(account)")
+        rootRevision += 1
     }
 }

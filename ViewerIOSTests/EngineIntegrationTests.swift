@@ -21,7 +21,9 @@ import SupernoteKit
         }
     }
     func testBundledAnnotatedPDFAndOriginalText() async throws {
-        let mark = try XCTUnwrap(MobileLibrary.exampleURLs.first { $0.pathExtension == "mark" })
+        // The repository's examples are read in place; the app no longer bundles them.
+        let examples = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("examples")
+        let mark = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: examples, includingPropertiesForKeys: nil).first { $0.pathExtension == "mark" })
         let workspace = try Workspace()
         let output = workspace.url.appendingPathComponent("composed.pdf")
         let companion = mark.deletingPathExtension()
