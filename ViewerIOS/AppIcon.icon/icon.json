@@ -1,0 +1,103 @@
+{
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "srgb:0.91373,0.90980,0.88627,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "srgb:0.91373,0.90980,0.88627,1.00000"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "dot.svg",
+          "name": "dot",
+          "glass": false,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.16863,0.29804,0.54902,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.16863,0.29804,0.54902,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "image-name": "stroke.svg",
+          "name": "stroke",
+          "glass": false,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.08235,0.08235,0.08235,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.08235,0.08235,0.08235,1.00000"
+              }
+            }
+          ]
+        }
+      ],
+      "name": "Ink",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.3
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    },
+    {
+      "layers": [
+        {
+          "image-name": "rules.svg",
+          "name": "rules",
+          "glass": false,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.11765,0.11765,0.09804,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.11765,0.11765,0.09804,1.00000"
+              }
+            }
+          ],
+          "opacity": 0.13
+        }
+      ],
+      "name": "Paper",
+      "shadow": {
+        "kind": "none",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "iOS"
+    ]
+  }
+}

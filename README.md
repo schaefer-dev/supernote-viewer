@@ -125,3 +125,12 @@ Format notes come from [supernotelib](https://github.com/jya-dev/supernote-tool)
 ## License
 
 [MIT](LICENSE). Not affiliated with Ratta or Supernote.
+
+## iPhone and iPad (iOS 26+)
+
+The native online reader is in `ViewerIOS/`. It supports Dropbox browsing/opening,
+Files import, bundled examples, PDFKit reading/search, thumbnails/titles, PDF
+export and recents. It displays a complete preview before handwriting OCR.
+See [iOS setup and validation](docs/ios-implementation.md) for configuration,
+build commands and outstanding real-account/physical-device checks. Offline
+pinning and synchronization remain [later roadmap work](docs/ios-port-plan.md).
