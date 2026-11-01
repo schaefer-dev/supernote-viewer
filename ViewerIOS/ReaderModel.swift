@@ -10,8 +10,34 @@ private final class SearchGeneration: @unchecked Sendable {
     func advance() { lock.withLock { id = UUID() } }
 }
 
+/// SwiftUI removes the reader's PDF view while another document loads and inserts it again
+/// without a size. PDFView lays a document out anew the first time it gets a size, which scrolls
+/// back to the first page and drops any page set before. Navigation requested in that state waits
+/// here and runs once the view is on screen and laid out.
+final class ReaderPDFView: PDFView {
+    private var pending: (() -> Void)?
+    /// True while a requested position waits for layout; page reports until then are PDFKit's own.
+    var isAwaitingLayout: Bool { pending != nil }
+    var isReady: Bool { window != nil && !bounds.isEmpty }
+    func navigate(_ action: @escaping () -> Void) {
+        if isReady && pending == nil { action() } else { pending = action; setNeedsLayout() }
+    }
+    func cancelPendingNavigation() { pending = nil }
+    override func didMoveToWindow() { super.didMoveToWindow(); if pending != nil { setNeedsLayout() } }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard pending != nil, isReady else { return }
+        // PDFKit finishes its own layout, including the scroll to the top, after this pass.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isReady, let action = self.pending else { return }
+            self.pending = nil
+            action()
+        }
+    }
+}
+
 @Observable @MainActor final class ReaderModel: NSObject, PDFDocumentDelegate {
-    let view = PDFView()
+    let view = ReaderPDFView()
     @ObservationIgnored nonisolated private let searches = SearchGeneration()
     var query = ""
     var results: [PDFSelection] = []
@@ -44,7 +70,7 @@ private final class SearchGeneration: @unchecked Sendable {
         view.backgroundColor = .secondarySystemBackground
         observer = NotificationCenter.default.addObserver(forName: .PDFViewPageChanged, object: view, queue: .main) { [weak self] _ in
             Task { @MainActor in
-                guard let self, let document = self.document, let current = self.view.currentPage else { return }
+                guard let self, !self.view.isAwaitingLayout, let document = self.document, let current = self.view.currentPage else { return }
                 self.page = document.index(for: current)
                 self.pageChanged?(self.page)
             }
@@ -54,6 +80,7 @@ private final class SearchGeneration: @unchecked Sendable {
     func reset() {
         searches.advance()
         document?.cancelFindString(); document?.delegate = nil
+        view.cancelPendingNavigation()
         document = nil; view.document = nil; workspace = nil; results = []; current = nil; resumePage = nil; titles = []; page = 0; query = ""; searching = false
     }
     func replace(_ document: PDFDocument, page requestedPage: Int, workspace: Workspace? = nil) {
@@ -71,10 +98,14 @@ private final class SearchGeneration: @unchecked Sendable {
         self.workspace = workspace
         page = min(max(0, requestedPage), max(0, document.pageCount - 1))
         if let newPage = document.page(at: page) {
-            if replacing, let destination { view.go(to: PDFDestination(page: newPage, at: destination.point)) }
-            else { view.go(to: newPage) }
+            let view = self.view
+            view.navigate {
+                guard view.document === document else { return }
+                if replacing, let destination { view.go(to: PDFDestination(page: newPage, at: destination.point)) }
+                else { view.go(to: newPage) }
+                if replacing { view.scaleFactor = max(view.minScaleFactor, min(view.maxScaleFactor, view.scaleFactorForSizeToFit * zoom)) }
+            }
         }
-        if replacing { view.scaleFactor = max(view.minScaleFactor, min(view.maxScaleFactor, view.scaleFactorForSizeToFit * zoom)) }
         titles = Self.titles(in: document)
         titlesChanged?()
         search()
@@ -135,7 +166,13 @@ private final class SearchGeneration: @unchecked Sendable {
             if self.current == nil, self.resumePage != nil { self.resumePage = nil; self.show(0) }
         }
     }
-    func go(to page: Int) { if let page = document?.page(at: page) { view.go(to: page) } }
+    func go(to index: Int) {
+        guard let document, let page = document.page(at: index) else { return }
+        // Shown right away when the view is off screen, and kept if a layout is still pending.
+        self.page = index
+        let view = self.view
+        view.navigate { if view.document === document { view.go(to: page) } }
+    }
     func next() { step(1) }
     func previous() { step(-1) }
     /// Moves through the matches, wrapping around at either end.
@@ -153,8 +190,12 @@ private final class SearchGeneration: @unchecked Sendable {
         highlight.color = Self.currentMatchColor
         view.highlightedSelections = nil
         view.highlightedSelections = results.enumerated().filter { $0.offset != index }.map(\.element) + [highlight]
-        view.go(to: results[index])
-        center(results[index])
+        let selection = results[index], view = self.view
+        view.navigate { [weak self] in
+            guard view.document === document else { return }
+            view.go(to: selection)
+            self?.center(selection)
+        }
     }
     /// Top edge of the find bar in window coordinates while it is shown. The bar and the keyboard
     /// below it cover the bottom of the page.

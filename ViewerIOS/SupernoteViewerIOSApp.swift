@@ -114,6 +114,13 @@ import Network
             session.accountID = "ui-favorites"
             favorites.removeAll(account: "ui-favorites")
             recents.removeAll(account: "ui-favorites")
+            if ProcessInfo.processInfo.arguments.contains("--ui-test-page-favorites") {
+                // Bookmarks on later pages of two different documents.
+                for (index, page) in [(1, 2), (2, 1)] {
+                    favorites.toggleBookmark(.init(source: .dropbox, accountID: "ui-favorites", fileID: "ui-favorite-\(index)", name: "Document \(index).pdf"), page: page, title: nil)
+                }
+                return
+            }
             for index in 1...6 {
                 favorites.toggleDocument(.init(source: .dropbox, accountID: "ui-favorites", fileID: "ui-favorite-\(index)", name: "Document \(index).note"))
             }

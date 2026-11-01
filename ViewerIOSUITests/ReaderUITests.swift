@@ -119,6 +119,22 @@ final class ReaderUITests: XCTestCase {
 }
 
 final class FavoritesUITests: XCTestCase {
+    /// A page favorite opens at its page, also when another document was open before.
+    @MainActor func testPageFavoritesOpenAtTheirPage() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test-favorites", "--ui-test-page-favorites", "--ui-test-open", Fixture.path("2026-03-22 Garmin Connect Integration.pdf")]
+        app.launch()
+        for (row, page) in [("Document 1 · Page 3", 3), ("Document 2 · Page 2", 2), ("Document 1 · Page 3", 3)] {
+            let favorite = app.staticTexts[row]
+            XCTAssertTrue(favorite.waitForExistence(timeout: 10), row)
+            favorite.tap()
+            XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30))
+            // The star is filled only on the bookmarked page.
+            XCTAssertTrue(app.buttons["Remove from Favorites"].waitForExistence(timeout: 5), "\(row) opens at page \(page)")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+    }
+
     @MainActor func testHomeFavoritesAndReaderToggle() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test-favorites", "--ui-test-open", Fixture.path(Fixture.note)]

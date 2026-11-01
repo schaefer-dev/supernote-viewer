@@ -308,10 +308,12 @@ struct FakeRenderer: MobileRendering {
         reader.replace(try pages(["a", "b"]), page: 0)
         reader.view.layoutIfNeeded()
         // The reader shows a progress view while the next document loads.
-        reader.view.removeFromSuperview()
+        // SwiftUI inserts it again without a size, and sizes it only after the new PDF is set.
+        reader.view.removeFromSuperview(); reader.view.frame = .zero
         reader.reset()
         reader.replace(try pages(["1", "2", "3", "4", "5", "6"]), page: 4)
         window.addSubview(reader.view)
+        reader.view.frame = window.bounds
         reader.view.layoutIfNeeded()
         try await Task.sleep(for: .milliseconds(300))
         let document = try XCTUnwrap(reader.document), current = try XCTUnwrap(reader.view.currentPage)
