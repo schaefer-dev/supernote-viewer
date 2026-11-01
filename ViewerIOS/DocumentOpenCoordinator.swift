@@ -261,9 +261,10 @@ private final class RecognitionDiagnostics: @unchecked Sendable {
     /// Records a completed output in the cache without blocking the main actor.
     private func storeCompleted(_ url: URL, operation: UUID) {
         guard operation == generation, let cache, let key = cacheKey else { return }
-        Task.detached(priority: .utility) { [weak self] in
-            cache.store(url, for: key)
-            await MainActor.run { self?.renderingSaved?(key) }
+        // Only the file work leaves the main actor; the callback runs back on it.
+        Task { [weak self] in
+            await Task.detached(priority: .utility) { cache.store(url, for: key) }.value
+            self?.renderingSaved?(key)
         }
     }
     private func download(_ entry: RemoteEntry, service: any DropboxService, workspace: Workspace, operation: UUID, name: String) async throws -> URL {

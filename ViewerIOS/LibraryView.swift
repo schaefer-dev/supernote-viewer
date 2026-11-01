@@ -43,6 +43,8 @@ struct LibraryView: View {
                     case .dropbox: DropboxLanding(library: library, opened: { compactColumn = .detail })
                     }
                 }
+                // Large titles do not render in this split-view column on iOS 26; inline titles do.
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .secondaryAction) {
                         Menu("More", systemImage: "ellipsis.circle") {

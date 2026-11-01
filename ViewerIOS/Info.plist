@@ -52,6 +52,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>DropboxAppKey</key>
 	<string>$(DROPBOX_APP_KEY)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>dbapi-8-emm</string>
