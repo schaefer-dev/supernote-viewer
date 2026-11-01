@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 
 struct RemoteEntry: Codable, Hashable, Identifiable, Sendable {
     let id: String
@@ -14,6 +15,9 @@ struct RemoteEntry: Codable, Hashable, Identifiable, Sendable {
     var isAnnotation: Bool { name.lowercased().hasSuffix(".pdf.mark") }
     var isSupported: Bool { isFolder || ["note", "pdf"].contains((name as NSString).pathExtension.lowercased()) || isAnnotation }
 }
+
+/// "iPhone" or "iPad", for text that refers to this device.
+@MainActor var deviceName: String { UIDevice.current.model }
 
 /// The name people expect to read: without `.note`, `.pdf` or `.pdf.mark`.
 func displayName(_ fileName: String) -> String {

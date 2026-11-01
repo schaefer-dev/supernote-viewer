@@ -26,14 +26,12 @@ struct LibraryView: View {
     @State private var importing = false
     @State private var importingOriginal = false
     @State private var showingSettings = false
+    @State private var columns: NavigationSplitViewVisibility = .all
+    @Environment(\.horizontalSizeClass) private var sizeClass
     var body: some View {
-        NavigationSplitView(preferredCompactColumn: $compactColumn) {
+        NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
             List(Source.allCases, selection: $source) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }
                 .navigationTitle("Supernote")
-                .toolbar {
-                    Button("Settings", systemImage: "gearshape") { showingSettings = true }
-                    Button("Import", systemImage: "square.and.arrow.down") { importing = true }
-                }
         } content: {
             NavigationStack {
                 Group {
@@ -46,7 +44,8 @@ struct LibraryView: View {
                 // Large titles do not render in this split-view column on iOS 26; inline titles do.
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .secondaryAction) {
+                    // The document list is visible whenever the library is, on iPhone and iPad.
+                    ToolbarItem(placement: .topBarTrailing) {
                         Menu("More", systemImage: "ellipsis.circle") {
                             Button("Import from Files…", systemImage: "square.and.arrow.down") { importing = true }
                             Button("Settings", systemImage: "gearshape") { showingSettings = true }
@@ -55,10 +54,16 @@ struct LibraryView: View {
                 }
             }
         } detail: {
-            ReaderScreen(library: library)
+            ReaderScreen(library: library,
+                         showLibrary: sizeClass == .regular && columns == .detailOnly ? { withAnimation { columns = .all } } : nil)
         }
+        // The library columns slide over the page instead of squeezing it.
+        .navigationSplitViewStyle(.prominentDetail)
         .onChange(of: library.opener.reference?.id) { _, identity in
-            if identity != nil { compactColumn = .detail }
+            guard identity != nil else { return }
+            compactColumn = .detail
+            // Give the page the whole screen; the sidebar button brings the library back.
+            if sizeClass == .regular { withAnimation { columns = .detailOnly } }
         }
         .sheet(isPresented: $showingSettings) { SettingsView(library: library, chooseFolder: { source = .dropbox }) }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf, UTType(exportedAs: "dev.schaefer.supernote.note"), UTType(exportedAs: "dev.schaefer.supernote.mark")], allowsMultipleSelection: true) { result in
@@ -411,7 +416,7 @@ private struct SettingsView: View {
                     Button("Remove Downloaded Documents", role: .destructive) { confirmingRemoval = true }
                         .disabled(usage?.documents == 0)
                 } header: { Text("Offline") } footer: {
-                    Text("Opened and synced documents are kept on this iPhone in their newest version, so they open instantly and without a connection. Removing them never changes your Dropbox.")
+                    Text("Opened and synced documents are kept on this \(deviceName) in their newest version, so they open instantly and without a connection. Removing them never changes your Dropbox.")
                 }
                 Section("About") {
                     LabeledContent("Version", value: Self.version)
@@ -424,12 +429,12 @@ private struct SettingsView: View {
             .task(id: library.savedGeneration) {
                 usage = await Task.detached(priority: .utility) { RenderedPDFCache.shared.usage() }.value
             }
-            .confirmationDialog("Remove all downloaded documents from this iPhone?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
+            .confirmationDialog("Remove all downloaded documents from this \(deviceName)?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
                 Button("Remove Downloads", role: .destructive) { library.removeDownloads() }
             } message: { Text("Your Dropbox files are not affected. Documents download again when you open or sync them.") }
             .confirmationDialog("Disconnect Dropbox?", isPresented: $confirmingDisconnect, titleVisibility: .visible) {
                 Button("Disconnect", role: .destructive) { library.disconnect(); dismiss() }
-            } message: { Text("Recents and downloaded documents for this account are removed from this iPhone.") }
+            } message: { Text("Recents and downloaded documents for this account are removed from this \(deviceName).") }
         }
     }
     private var libraryFolderName: String {

@@ -26,6 +26,8 @@ private struct ShareSheet: UIViewControllerRepresentable {
 
 struct ReaderScreen: View {
     @Bindable var library: MobileLibrary
+    /// Set while the library columns are hidden on iPad; shows the library again.
+    var showLibrary: (() -> Void)? = nil
     @State private var showingSearch = false
     @State private var showingPages = false
     @State private var showingInfo = false
@@ -49,7 +51,7 @@ struct ReaderScreen: View {
                           systemImage: library.opener.errorIsOffline ? "wifi.slash" : "exclamationmark.triangle")
                 } description: {
                     Text(library.opener.errorIsOffline
-                         ? "This document hasn't been saved on this iPhone yet. Connect to the internet and try again, or sync your library for offline use."
+                         ? "This document hasn't been saved on this \(deviceName) yet. Connect to the internet and try again, or sync your library for offline use."
                          : error)
                 } actions: {
                     Button("Try Again") { library.reload() }.buttonStyle(.borderedProminent)
@@ -83,15 +85,23 @@ struct ReaderScreen: View {
         .navigationTitle(displayName(library.opener.reference?.name ?? "Reader"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if library.opener.displayed != nil {
-                Button("Search", systemImage: "magnifyingglass") { showingSearch = true }.keyboardShortcut("f", modifiers: .command)
-                Button("Pages and Titles", systemImage: "sidebar.right") {
-                    if sizeClass == .regular { inspectorVisible.toggle() } else { showingPages = true }
+            if let showLibrary {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Library", systemImage: "sidebar.left", action: showLibrary)
+                        .keyboardShortcut("s", modifiers: [.command, .control])
                 }
-                Menu("Document", systemImage: "ellipsis.circle") {
-                    Button("Share PDF", systemImage: "square.and.arrow.up") { if let displayed = library.opener.displayed { share = ShareSnapshot(displayed: displayed) } }
-                    Button("Reload", systemImage: "arrow.clockwise") { library.reload() }.keyboardShortcut("r", modifiers: .command)
-                    Button("Document Information", systemImage: "info.circle") { showingInfo = true }
+            }
+            if library.opener.displayed != nil {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button("Search", systemImage: "magnifyingglass") { showingSearch = true }.keyboardShortcut("f", modifiers: .command)
+                    Button("Pages and Titles", systemImage: "sidebar.right") {
+                        if sizeClass == .regular { inspectorVisible.toggle() } else { showingPages = true }
+                    }
+                    Menu("Document", systemImage: "ellipsis.circle") {
+                        Button("Share PDF", systemImage: "square.and.arrow.up") { if let displayed = library.opener.displayed { share = ShareSnapshot(displayed: displayed) } }
+                        Button("Reload", systemImage: "arrow.clockwise") { library.reload() }.keyboardShortcut("r", modifiers: .command)
+                        Button("Document Information", systemImage: "info.circle") { showingInfo = true }
+                    }
                 }
             }
         }
