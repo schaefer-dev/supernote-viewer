@@ -62,4 +62,8 @@ dist/
 # Generated local mobile configuration
 ViewerIOS/Configuration/Local.xcconfig
 __pycache__/
+
+# other stuff
 docs/
+CLAUDE.md
+AGENTS.md
