@@ -361,7 +361,7 @@ private struct MatchStepStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(isEnabled ? Color.accentColor : Color.secondary.opacity(0.5))
-            .frame(width: 44, height: 28)
+            .frame(width: 64, height: 28)
             .background(configuration.isPressed ? Color.accentColor.opacity(0.25) : Color.clear)
             .contentShape(Rectangle())
     }
@@ -397,7 +397,7 @@ private struct FindBar: View {
                     .keyboardShortcut(.cancelAction)
             }
             HStack(spacing: 4) {
-                Text(status).font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+                Text(status).font(.footnote.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
                     .accessibilityIdentifier("Match Count")
                 Spacer(minLength: 8)
                 // One pill split in two wide halves, so each arrow is easy to hit and shows which
