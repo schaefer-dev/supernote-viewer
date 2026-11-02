@@ -24,8 +24,25 @@ final class ReaderPDFView: PDFView {
     }
     func cancelPendingNavigation() { pending = nil }
     override func didMoveToWindow() { super.didMoveToWindow(); if pending != nil { setNeedsLayout() } }
+    /// Orientation of the last laid-out size; turning the device fits the page to the width again.
+    private var wasLandscape: Bool?
     override func layoutSubviews() {
+        var refitPage: PDFPage?
+        if !bounds.isEmpty {
+            let landscape = bounds.width > bounds.height
+            if let wasLandscape, wasLandscape != landscape, pending == nil { refitPage = currentPage }
+            wasLandscape = landscape
+        }
         super.layoutSubviews()
+        if let refitPage {
+            // After PDFKit's own layout for the new size, like pending navigation below.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.pending == nil, refitPage.document === self.document else { return }
+                self.autoScales = true
+                self.scaleFactor = self.scaleFactorForSizeToFit
+                self.go(to: refitPage)
+            }
+        }
         guard pending != nil, isReady else { return }
         // PDFKit finishes its own layout, including the scroll to the top, after this pass.
         DispatchQueue.main.async { [weak self] in

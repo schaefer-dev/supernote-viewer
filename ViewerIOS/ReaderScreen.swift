@@ -26,10 +26,14 @@ struct ReaderScreen: View {
     @State private var inspectorVisible = false
     @State private var readerIdentity: String?
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     struct ShareSnapshot: Identifiable { let id = UUID(); let displayed: DisplayedDocument }
     @State private var pageIndicatorVisible = false
     private var documentTitle: String { displayName(library.opener.reference?.name ?? "Reader") }
-    private var compactTitle: Bool { sizeClass == .compact && library.opener.displayed != nil }
+    /// Any iPhone in landscape: the bar floats over the page and has room for the document name.
+    private var landscapePhone: Bool { verticalSizeClass == .compact }
+    /// iPhone portrait only; the bar is too narrow there for the name beside the actions.
+    private var compactTitle: Bool { sizeClass == .compact && !landscapePhone && library.opener.displayed != nil }
     /// The full document name in a slim line under the navigation bar on iPhone.
     private var titleCaption: some View {
         Text(documentTitle)
@@ -45,7 +49,7 @@ struct ReaderScreen: View {
         ZStack {
             if library.opener.displayed != nil {
                 PDFReaderView(model: library.reader)
-                    .ignoresSafeArea(edges: .bottom)
+                    .ignoresSafeArea(edges: landscapePhone ? .vertical : .bottom)
                     .accessibilityLabel("Document pages")
                     .safeAreaInset(edge: .top, spacing: 0) { if compactTitle { titleCaption } }
                     .overlay(alignment: .top) { banners }
@@ -97,6 +101,7 @@ struct ReaderScreen: View {
         }
         .navigationTitle(documentTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackgroundVisibility(landscapePhone ? .hidden : .automatic, for: .navigationBar)
         .toolbar {
             if compactTitle {
                 // The bar's own title only fits a few characters beside the actions on iPhone; the
@@ -350,6 +355,18 @@ private struct PageCell: View {
     }
 }
 
+/// One half of the find bar's arrow pill: a wide tap target that fills while pressed.
+private struct MatchStepStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(isEnabled ? Color.accentColor : Color.secondary.opacity(0.5))
+            .frame(width: 44, height: 28)
+            .background(configuration.isPressed ? Color.accentColor.opacity(0.25) : Color.clear)
+            .contentShape(Rectangle())
+    }
+}
+
 /// A browser-style find bar over the bottom of the page: type to jump to the first match, then step
 /// through the rest with the arrows, Return, or Command-G and Shift-Command-G.
 private struct FindBar: View {
@@ -383,15 +400,22 @@ private struct FindBar: View {
                 Text(status).font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
                     .accessibilityIdentifier("Match Count")
                 Spacer(minLength: 8)
-                Button("Previous Match", systemImage: "chevron.up") { reader.previous() }
-                    .keyboardShortcut("g", modifiers: [.command, .shift])
-                Button("Next Match", systemImage: "chevron.down") { reader.next() }
-                    .keyboardShortcut("g", modifiers: .command)
+                // One pill split in two wide halves, so each arrow is easy to hit and shows which
+                // half was pressed.
+                HStack(spacing: 0) {
+                    Button("Previous Match", systemImage: "chevron.up") { reader.previous() }
+                        .keyboardShortcut("g", modifiers: [.command, .shift])
+                    Divider().frame(height: 16)
+                    Button("Next Match", systemImage: "chevron.down") { reader.next() }
+                        .keyboardShortcut("g", modifiers: .command)
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(MatchStepStyle())
+                .font(.subheadline.weight(.semibold))
+                .background(Color(.tertiarySystemFill), in: Capsule())
+                .clipShape(Capsule())
+                .disabled(reader.results.isEmpty)
             }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .disabled(reader.results.isEmpty)
-            .font(.body.weight(.semibold))
             .frame(minHeight: 28)
         }
         .padding(12)

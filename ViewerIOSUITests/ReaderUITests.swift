@@ -20,6 +20,31 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(count.waitForExistence(timeout: 10))
         XCTAssertTrue(waitForLabel(count, prefix: "1 of"), count.label)
     }
+    /// Landscape iPhone moves the name into the floating bar; portrait keeps the caption below it.
+    /// Rotating fits a zoomed page to the width again.
+    @MainActor func testLandscapePhoneTitleAndRefit() throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("iPhone layout") }
+        let app = Fixture.launch(opening: Fixture.note)
+        XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Document Title"].exists)
+        let pages = app.otherElements["Document pages"].firstMatch
+        pages.pinch(withScale: 2.5, velocity: 2)
+        sleep(1)
+        let zoomed = XCTAttachment(screenshot: app.screenshot()); zoomed.name = "Portrait zoomed"; zoomed.lifetime = .keepAlways; add(zoomed)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        sleep(2)
+        XCTAssertFalse(app.staticTexts["Document Title"].exists, "Landscape has no caption bar")
+        XCTAssertTrue(app.navigationBars["Example Note"].staticTexts["Example Note"].exists, "Landscape shows the name in the bar")
+        let landscape = XCTAttachment(screenshot: app.screenshot()); landscape.name = "Landscape"; landscape.lifetime = .keepAlways; add(landscape)
+        pages.swipeUp()
+        sleep(1)
+        let scrolled = XCTAttachment(screenshot: app.screenshot()); scrolled.name = "Landscape scrolled"; scrolled.lifetime = .keepAlways; add(scrolled)
+        XCUIDevice.shared.orientation = .portrait
+        sleep(2)
+        XCTAssertTrue(app.staticTexts["Document Title"].exists, "Portrait shows the caption again")
+        let portrait = XCTAttachment(screenshot: app.screenshot()); portrait.name = "Portrait again"; portrait.lifetime = .keepAlways; add(portrait)
+    }
     @MainActor private func waitForLabel(_ element: XCUIElement, prefix: String, timeout: TimeInterval = 20) -> Bool {
         let predicate = NSPredicate(format: "label BEGINSWITH %@", prefix)
         return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: timeout) == .completed
