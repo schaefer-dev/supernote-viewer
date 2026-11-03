@@ -239,6 +239,10 @@ final class ReaderPDFView: PDFView {
         }
         scrollView.setContentOffset(offset, animated: false)
     }
+    /// The floating bar blurs only behind the title, so the page's own top-edge blur is turned off.
+    func setTopEdgeEffectHidden(_ hidden: Bool) {
+        Self.scrollView(in: view)?.topEdgeEffect.isHidden = hidden
+    }
     private static func scrollView(in view: UIView) -> UIScrollView? {
         for subview in view.subviews {
             if let scrollView = subview as? UIScrollView { return scrollView }

@@ -20,7 +20,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(count.waitForExistence(timeout: 10))
         XCTAssertTrue(waitForLabel(count, prefix: "1 of"), count.label)
     }
-    /// Landscape iPhone moves the name into the floating bar; portrait keeps the caption below it.
+    /// Landscape iPhone moves the name into a blurred capsule in the floating bar; portrait keeps the caption below it.
     /// Rotating fits a zoomed page to the width again.
     @MainActor func testLandscapePhoneTitleAndRefit() throws {
         guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("iPhone layout") }

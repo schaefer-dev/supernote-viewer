@@ -26,6 +26,7 @@ final class IPadLayoutTests: XCTestCase {
         XCTAssertFalse(home.exists && home.isHittable, "Opening a document gives the page the whole screen")
         sleep(2)
         assertSingleLibraryControl(app)
+        XCTAssertTrue(app.navigationBars["Example Titles"].staticTexts["Example Titles"].exists, "Landscape shows the name in the floating bar")
         shot(app, "02 Landscape reader")
 
         app.buttons["Pages and Titles"].tap()

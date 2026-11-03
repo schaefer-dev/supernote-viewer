@@ -30,10 +30,23 @@ struct ReaderScreen: View {
     struct ShareSnapshot: Identifiable { let id = UUID(); let displayed: DisplayedDocument }
     @State private var pageIndicatorVisible = false
     private var documentTitle: String { displayName(library.opener.reference?.name ?? "Reader") }
-    /// Any iPhone in landscape: the bar floats over the page and has room for the document name.
-    private var landscapePhone: Bool { verticalSizeClass == .compact }
+    @State private var readerSize: CGSize = .zero
+    /// Landscape on iPhone and iPad: the page runs under the bar, the controls float as glass
+    /// buttons and only the document name gets a blurred backdrop.
+    private var floatingBar: Bool {
+        verticalSizeClass == .compact || (sizeClass == .regular && readerSize.width > readerSize.height)
+    }
     /// iPhone portrait only; the bar is too narrow there for the name beside the actions.
-    private var compactTitle: Bool { sizeClass == .compact && !landscapePhone && library.opener.displayed != nil }
+    private var compactTitle: Bool { sizeClass == .compact && !floatingBar && library.opener.displayed != nil }
+    /// The document name in its own blurred capsule while the bar floats over the page.
+    private var floatingTitle: some View {
+        Text(documentTitle)
+            .font(.headline)
+            .lineLimit(1).truncationMode(.middle)
+            .padding(.horizontal, 14).padding(.vertical, 6)
+            .glassEffect(.regular, in: Capsule())
+            .accessibilityAddTraits(.isHeader)
+    }
     /// The full document name in a slim line under the navigation bar on iPhone.
     private var titleCaption: some View {
         Text(documentTitle)
@@ -49,7 +62,7 @@ struct ReaderScreen: View {
         ZStack {
             if library.opener.displayed != nil {
                 PDFReaderView(model: library.reader)
-                    .ignoresSafeArea(edges: landscapePhone ? .vertical : .bottom)
+                    .ignoresSafeArea(edges: floatingBar ? .vertical : .bottom)
                     .accessibilityLabel("Document pages")
                     .safeAreaInset(edge: .top, spacing: 0) { if compactTitle { titleCaption } }
                     .overlay(alignment: .top) { banners }
@@ -92,6 +105,8 @@ struct ReaderScreen: View {
             }
         }
         .background(library.opener.displayed != nil ? Color(.secondarySystemBackground) : Color(.systemBackground))
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { readerSize = $0 }
+        .onChange(of: floatingBar, initial: true) { _, floating in library.reader.setTopEdgeEffectHidden(floating) }
         .task(id: library.reader.page) {
             guard library.opener.displayed != nil else { return }
             withAnimation(.easeOut(duration: 0.15)) { pageIndicatorVisible = true }
@@ -101,12 +116,15 @@ struct ReaderScreen: View {
         }
         .navigationTitle(documentTitle)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackgroundVisibility(landscapePhone ? .hidden : .automatic, for: .navigationBar)
+        .toolbarBackgroundVisibility(floatingBar ? .hidden : .automatic, for: .navigationBar)
         .toolbar {
             if compactTitle {
                 // The bar's own title only fits a few characters beside the actions on iPhone; the
                 // caption below the bar shows the full name instead.
                 ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
+            } else if floatingBar && library.opener.displayed != nil {
+                ToolbarItem(placement: .principal) { floatingTitle }
+                    .sharedBackgroundVisibility(.hidden)
             }
             if let showLibrary {
                 ToolbarItem(placement: .topBarLeading) {
@@ -134,6 +152,7 @@ struct ReaderScreen: View {
                 library.reader.reset(); readerIdentity = library.opener.reference?.id
             }
             if let displayed = library.opener.displayed { library.reader.replace(displayed.document, page: library.opener.page, workspace: displayed.workspace) }
+            library.reader.setTopEdgeEffectHidden(floatingBar)
         }
         // The inspector stays open beside the page; the sheets cover it, so choosing a page closes them.
         .inspector(isPresented: $inspectorVisible) { PagesPanel(library: library, navigated: {}).inspectorColumnWidth(min: 220, ideal: 280, max: 400) }
