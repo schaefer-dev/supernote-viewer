@@ -133,8 +133,8 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: ViewerIOS
-        excludes: [Configuration, ExportOptions.plist]
-      # Bundled sample documents for trying the app without Dropbox (and for App Review).
+        excludes: [Configuration]
+      # Bundled sample documents for trying the app without Dropbox.
       - path: examples
         type: folder
         buildPhase: resources

@@ -68,9 +68,7 @@ docs/
 CLAUDE.md
 AGENTS.md
 
-# App Store: keys and store material never live in this public repository
+# Signing keys and provisioning profiles
 *.p8
 AuthKey_*
 *.mobileprovision
-appstore-out/
-fastlane/

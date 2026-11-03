@@ -33,7 +33,7 @@ import SupernoteKit
         XCTAssertGreaterThanOrEqual(pdf.pageCount, original.pageCount)
         XCTAssertFalse((pdf.string ?? "").isEmpty, "Original PDF text must be searchable before handwriting OCR")
     }
-    /// The samples offered on Home before Dropbox is connected (and used by App Review) ship in the
+    /// The samples offered on Home before Dropbox is connected ship in the
     /// app bundle and render.
     func testBundledSamplesRender() async throws {
         let workspace = try Workspace()

@@ -1,6 +1,6 @@
 """Icon concepts explored for the app name: Sumi (chosen, see Artwork/sumi/), Remora and Quire.
 
-Exploration only: writes 1024x1024 full-bleed SVGs to Artwork/concepts/build/svg/ (the App Store
+Exploration only: writes 1024x1024 full-bleed SVGs to Artwork/concepts/build/svg/ (the system
 applies the rounded mask). Strokes reuse nib_stroke() from Artwork/artwork.py so the ink matches the
 current icon. Render with render.sh.
 """

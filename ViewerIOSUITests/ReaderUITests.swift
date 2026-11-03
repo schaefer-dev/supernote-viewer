@@ -136,7 +136,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Browse Dropbox"].waitForExistence(timeout: 5))
         let dropbox = XCTAttachment(screenshot: app.screenshot()); dropbox.name = "Browse Dropbox"; dropbox.lifetime = .keepAlways; add(dropbox)
     }
-    /// Without Dropbox, Home offers the bundled samples (what App Review uses) and Open from Files.
+    /// Without Dropbox, Home offers the bundled samples and Open from Files.
     @MainActor func testSampleNotebookOpensWithoutDropbox() throws {
         let app = XCUIApplication()
         app.launch()

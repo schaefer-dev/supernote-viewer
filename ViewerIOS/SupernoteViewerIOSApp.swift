@@ -41,8 +41,8 @@ import Network
         if ProcessInfo.processInfo.arguments.contains("--ui-test-favorites") {
             return UserDefaults(suiteName: "favorites-ui-tests")!
         }
-        if ProcessInfo.processInfo.arguments.contains("--ui-test-screenshots") {
-            return UserDefaults(suiteName: "screenshots-ui-tests")!
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-demo-library") {
+            return UserDefaults(suiteName: "demo-library-ui-tests")!
         }
         #endif
         return .standard
@@ -113,7 +113,7 @@ import Network
         return URL(fileURLWithPath: path)
     }
     func openUITestFixtureIfRequested() {
-        if ProcessInfo.processInfo.arguments.contains("--ui-test-screenshots") { seedScreenshotLibrary() }
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-demo-library") { seedDemoLibrary() }
         if ProcessInfo.processInfo.arguments.contains("--ui-test-favorites") {
             session.accountID = "ui-favorites"
             favorites.removeAll(account: "ui-favorites")
@@ -133,18 +133,18 @@ import Network
         guard let url = Self.uiTestFixture else { return }
         openFixture(url)
     }
-    /// App Store screenshots: a connected-looking library whose favorites and recents are the bundled
+    /// UI tests: a connected-looking library whose favorites and recents are the bundled
     /// samples, with saved renderings so thumbnails and offline badges appear. Nothing reaches Dropbox.
-    private func seedScreenshotLibrary() {
-        let account = "ui-screenshots"
+    private func seedDemoLibrary() {
+        let account = "ui-demo-library"
         session.state = .connected; session.accountID = account; session.accountName = "Supernote"
         favorites.removeAll(account: account); recents.removeAll(account: account)
         RenderedPDFCache.shared.removeAll(accountID: account)
-        recents.setRoot(RemoteEntry(id: "screenshots-root", name: "Supernote", path: "/Supernote", isFolder: true), account: account)
+        recents.setRoot(RemoteEntry(id: "demo-root", name: "Supernote", path: "/Supernote", isFolder: true), account: account)
         let documents: [(SampleDocument, folder: String)] = [(.titles, "Note"), (.annotatedPDF, "Document"), (.notebook, "Note")]
         func reference(_ sample: SampleDocument, _ folder: String) -> DocumentReference? {
             guard let url = sample.url else { return nil }
-            return .init(source: .dropbox, accountID: account, fileID: "screenshots-\(sample)", name: url.lastPathComponent,
+            return .init(source: .dropbox, accountID: account, fileID: "demo-\(sample)", name: url.lastPathComponent,
                          path: "/Supernote/\(folder)/\(url.lastPathComponent)")
         }
         for (sample, folder) in documents.reversed() {
@@ -163,7 +163,7 @@ import Network
                 let inputs = LocalInputs(source: url, companion: companion, workspace: workspace)
                 guard (try? await renderer.render(inputs, to: output, recognize: false, token: CancellationToken(), progress: { _, _ in })) != nil else { return }
                 let key = RenderCacheKey(accountID: account, fileID: reference.fileID, sourceRevision: "1",
-                                         companion: companion.map { _ in .original(id: "screenshots-original", revision: "1") } ?? .none)
+                                         companion: companion.map { _ in .original(id: "demo-original", revision: "1") } ?? .none)
                 RenderedPDFCache.shared.store(output, for: key)
                 renderingSaved(key)
             }

@@ -184,7 +184,7 @@ private struct HomeView: View {
                     }
                 }
             }
-            // Ways in without Dropbox, for trying the app (and App Review). Hidden once Dropbox is connected.
+            // Ways in without Dropbox, for trying the app. Hidden once Dropbox is connected.
             if library.session.state != .connected {
                 Section {
                     Menu {

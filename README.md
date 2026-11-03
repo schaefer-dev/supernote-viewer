@@ -121,15 +121,6 @@ This builds Sumi for Supernote and installs it to `/Applications`, replacing a c
 
 `./release.sh` builds the signed and notarized DMG for a GitHub release. The script prints the one-time setup it needs.
 
-### iOS app releases
-
-Copy `.env.example` to `.env` and fill it in. `.env` is gitignored. The App Store Connect API key (`.p8`) stays outside the repository.
-
-- `scripts/ios-release.sh` runs the tests, archives with the commit count as build number, checks the archive (bundle ID, Dropbox key) and uploads it to App Store Connect for TestFlight. `--no-upload` only archives.
-- `scripts/appstore-screenshots.sh` captures the App Store screenshots on the iPhone 6.9" and iPad 13" simulators (`ViewerIOSUITests/AppStoreScreenshotTests.swift`). `swift scripts/frame-screenshots.swift <dir>` adds the captions. Both write to `APPSTORE_DIR`, which lives outside this repository.
-
-Privacy policy and support: <https://schaefer-dev.de/sumi/privacy/> and <https://schaefer-dev.de/sumi/support/>.
-
 <details>
 <summary><b>For developers: project layout and file format notes</b></summary>
 

@@ -1,6 +1,6 @@
 """Contact sheets for the icon concepts: build/sheet-remora.html and build/sheet-quire.html.
 
-Each concept shows every colourway, a size ladder (App Store to Settings size), an App Store search
+Each concept shows every colourway, a size ladder (1024 px to Settings size), a search
 result, a home-screen row and a wordmark lockup. render.sh screenshots them to PNG.
 """
 import html
@@ -113,9 +113,6 @@ BRAND = """
       <div style="background:#2B4C8C;color:#fff"><b>Ai-iro</b>#2B4C8C indigo</div>
       <div style="background:#5D86D6;color:#fff"><b>Ai, light</b>#5D86D6 dark mode</div>
     </div>
-    <div class="cap" style="margin-top:18px">App Store</div>
-    <p class="list"><b>Sumi for Supernote</b> (18 / 30)<br>View &amp; search your handwriting<br>
-    Notebooks &amp; marked-up PDFs<br>Your notebooks, on iPhone</p>
   </div>
   <div class="card"><div class="cap">Wordmark</div>
     <div class="mark2"><span class="a">Sumi<i>.</i></span><span class="b">sumi<i>.</i></span></div>
@@ -155,7 +152,7 @@ def page(name, groups, lockup_ids, extra=""):
         out.append('<div><div class="cap">Sizes: 120 · 87 · 60 · 40 · 29 pt</div><div class="ladder">'
                    + "".join(f'<img src="png/{first}.png" width="{s}" height="{s}">' for s in (120, 87, 60, 40, 29))
                    + '</div></div>')
-        out.append(f'<div><div class="cap">App Store search</div><div class="store"><img src="png/{first}.png">'
+        out.append(f'<div><div class="cap">Search result</div><div class="store"><img src="png/{first}.png">'
                    f'<div><div class="t">{name} for Supernote</div><div class="st">{SUBTITLE[name]}</div>'
                    f'<div class="stars">★★★★★ &nbsp;Productivity</div></div><span class="get">Get</span></div></div>')
         out.append('<div><div class="cap">Home screen</div><div class="home">'
