@@ -113,7 +113,7 @@ final class ReaderUITests: XCTestCase {
         let app = Fixture.launch(opening: Fixture.note)
         XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30))
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.navigationBars["Supernote Viewer"].waitForExistence(timeout: 5), "Back returns to Home")
+        XCTAssertTrue(app.navigationBars["Sumi"].waitForExistence(timeout: 5), "Back returns to Home")
         XCTAssertTrue(app.staticTexts["Recently Opened"].exists)
         XCTAssertTrue(app.buttons["Browse Dropbox"].exists)
         XCTAssertTrue(app.buttons["Sync All"].exists)
@@ -125,7 +125,7 @@ final class ReaderUITests: XCTestCase {
         recent.tap()
         XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30), "A recent document opens with one tap")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.navigationBars["Supernote Viewer"].waitForExistence(timeout: 5), "Back from a recent returns to Home")
+        XCTAssertTrue(app.navigationBars["Sumi"].waitForExistence(timeout: 5), "Back from a recent returns to Home")
 
         app.buttons["Settings"].tap()
         XCTAssertTrue(app.switches["Sync All When App Opens"].waitForExistence(timeout: 5))

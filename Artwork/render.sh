@@ -1,12 +1,21 @@
 #!/bin/zsh
-# Regenerates the icon artwork from artwork.py: the layer SVGs in Viewer/AppIcon.icon and
-# Bridge/AppIcon.icon, and Shared/SupernoteNote.icns / SupernoteMark.icns (document icons),
+# Regenerates the icon artwork from artwork.py: the layers in Viewer, Bridge and ViewerIOS AppIcon.icon
+# (stroke.png and paper.png rendered here), and Shared/SupernoteNote.icns / SupernoteMark.icns (document icons),
 # rendered with headless Chrome.
 set -euo pipefail
 cd "$(dirname "$0")"
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 python3 -I artwork.py
+# App icon layers whose SVG filters Icon Composer can't render: the brush S and the washi texture.
+for layer in stroke paper; do
+  "$CHROME" --headless=new --disable-gpu --hide-scrollbars --default-background-color=00000000 \
+    --window-size=1024,1024 --screenshot="$PWD/build/icon-$layer.png" "file://$PWD/build/icon-$layer.svg" 2>/dev/null
+  for app in Viewer Bridge ViewerIOS; do
+    cp build/icon-$layer.png ../$app/AppIcon.icon/Assets/$layer.png
+  done
+done
+echo "wrote AppIcon.icon layers (stroke.png, paper.png, dot.svg)"
 for doc in note mark; do
   for variant in $doc $doc-small; do
     "$CHROME" --headless=new --disable-gpu --hide-scrollbars --default-background-color=00000000 \

@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Supernote Viewer</string>
+	<string>Sumi for Supernote</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -73,12 +73,12 @@
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>Measure in Supernote Viewer</string>
+				<string>Measure in Sumi for Supernote</string>
 			</dict>
 			<key>NSMessage</key>
 			<string>measureFiles</string>
 			<key>NSPortName</key>
-			<string>Supernote Viewer</string>
+			<string>Sumi for Supernote</string>
 			<key>NSRequiredContext</key>
 			<dict/>
 			<key>NSSendFileTypes</key>

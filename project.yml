@@ -32,7 +32,7 @@ targets:
     info:
       path: Viewer/Info.plist
       properties:
-        CFBundleDisplayName: Supernote Viewer
+        CFBundleDisplayName: Sumi for Supernote
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.productivity
@@ -55,9 +55,9 @@ targets:
             LSItemContentTypes: [com.adobe.pdf]
         NSServices:
           - NSMenuItem:
-              default: Measure in Supernote Viewer
+              default: Measure in Sumi for Supernote
             NSMessage: measureFiles
-            NSPortName: Supernote Viewer
+            NSPortName: Sumi for Supernote
             NSRequiredContext: {}
             NSSendFileTypes:
               - dev.schaefer.supernote.note
@@ -79,7 +79,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.SupernoteViewer
-        PRODUCT_NAME: Supernote Viewer
+        PRODUCT_NAME: Sumi for Supernote
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon  # Viewer/AppIcon.icon (Icon Composer)
     dependencies:
       - package: SupernoteKit
@@ -114,7 +114,7 @@ targets:
             CFBundleTypeRole: Viewer
             LSHandlerRank: Owner
             LSItemContentTypes: [dev.schaefer.supernote.mark]
-        # Supernote Viewer exports these types; importing keeps them defined without it.
+        # Sumi for Supernote exports these types; importing keeps them defined without it.
         UTImportedTypeDeclarations: *supernoteTypes
     settings:
       base:
@@ -189,7 +189,7 @@ targets:
     info:
       path: ViewerIOS/Info.plist
       properties:
-        CFBundleDisplayName: Supernote Viewer
+        CFBundleDisplayName: Sumi
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         DropboxAppKey: $(DROPBOX_APP_KEY)

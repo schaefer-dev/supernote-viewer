@@ -163,7 +163,7 @@ private struct HomeView: View {
                 }
             }
         }
-        .navigationTitle("Supernote Viewer")
+        .navigationTitle("Sumi")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -272,7 +272,7 @@ private struct DropboxLanding: View {
                 ContentUnavailableView {
                     Label("Connect to Dropbox", systemImage: "externaldrive.badge.icloud")
                 } description: {
-                    Text(library.session.state == .unconfigured ? Self.unconfiguredText : library.session.error ?? "Open notebooks and annotated PDFs from your Supernote sync folder. Supernote Viewer asks Dropbox for read-only access: it can list and download your files, but never changes, uploads or deletes anything.")
+                    Text(library.session.state == .unconfigured ? Self.unconfiguredText : library.session.error ?? "Open notebooks and annotated PDFs from your Supernote sync folder. Sumi asks Dropbox for read-only access: it can list and download your files, but never changes, uploads or deletes anything.")
                 } actions: {
                     if library.session.state != .unconfigured {
                         Button(library.session.state == .connecting ? "Try Connecting Again" : "Connect Dropbox") { library.session.connect() }
@@ -561,7 +561,7 @@ private struct SettingsView: View {
                             .disabled(library.sync.isActive)
                     }
                 } header: { Text("Sync") } footer: {
-                    Text("Downloads new and changed documents from your library folder each time Supernote Viewer opens, so they are ready to read offline.")
+                    Text("Downloads new and changed documents from your library folder each time Sumi opens, so they are ready to read offline.")
                 }
                 Section {
                     Toggle("Show Bookmarked Page", isOn: $showsBookmarkedPage)
@@ -581,7 +581,7 @@ private struct SettingsView: View {
                 }
                 Section("About") {
                     LabeledContent("Version", value: Self.version)
-                    Text("Supernote Viewer reads your notebooks with read-only Dropbox access. It never changes, uploads or deletes your files.")
+                    Text("Sumi reads your notebooks with read-only Dropbox access. It never changes, uploads or deletes your files.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }

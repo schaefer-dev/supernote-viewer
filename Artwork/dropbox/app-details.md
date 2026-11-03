@@ -1,6 +1,6 @@
 # Dropbox app details
 
-**App name:** Supernote Viewer
+**App name:** Sumi for Supernote
 
 **Publisher:** Daniel Schäfer
 

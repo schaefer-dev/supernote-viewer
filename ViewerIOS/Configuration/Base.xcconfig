@@ -1,4 +1,4 @@
-// Public OAuth client identifier for Supernote Viewer; this is not an app secret.
+// Public OAuth client identifier for Sumi for Supernote; this is not an app secret.
 // Local development registrations can override it in the ignored file below.
 DROPBOX_APP_KEY = dh16tts7s5fnt5z
 #include? "Local.xcconfig"

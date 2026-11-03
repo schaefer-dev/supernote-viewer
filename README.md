@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/hero.png" alt="Supernote Viewer: open your Supernote notebooks and marked-up PDFs right on your Mac" width="100%">
+  <img src="docs/images/hero.png" alt="Sumi for Supernote: open your Supernote notebooks and marked-up PDFs right on your Mac" width="100%">
 </p>
 
 <p align="center">
@@ -11,7 +11,7 @@
 
 Your Supernote syncs `.note` notebooks and `.pdf.mark` annotations to your Mac, but macOS can't open them. These two small apps fix that. Notebooks open with a double-click, preview with Space and can be searched like any other PDF. Everything runs on your Mac: no cloud, no account, no network access.
 
-- **Supernote Viewer** opens notes in its own window, with thumbnails, live reload and a measuring tool.
+- **Sumi for Supernote** opens notes in its own window, with thumbnails, live reload and a measuring tool.
 - **Supernote Preview Bridge** turns notes into PDFs and opens them in Apple's **Preview**, so you keep the tools you already know.
 
 You pick which one opens your files on double-click. Both come with Quick Look.
@@ -28,28 +28,28 @@ Double-click a notebook and it opens in Apple's Preview. Handwriting is drawn as
 
 Select a `.note` or `.pdf.mark` file and press Space for a full preview without opening any app.
 
-### Supernote Viewer: its own window, with live reload
+### Sumi for Supernote: its own window, with live reload
 
 Marked-up PDFs show your handwriting on top of the original document. There's a thumbnails sidebar (⌥⌘2). When your Supernote syncs a change, the open window updates by itself, so you can keep a notebook open on your Mac while you write on the device.
 
-<p align="center"><img src="docs/images/viewer.jpg" alt="Supernote Viewer showing a PDF with handwritten Supernote annotations" width="640"></p>
+<p align="center"><img src="docs/images/viewer.jpg" alt="Sumi for Supernote showing a PDF with handwritten Supernote annotations" width="640"></p>
 
 ### Measure plans to scale
 
-For floor plans and sketches: choose **Calibrate** and drag along a length you know (e.g. `2,23 m`), then choose **Measure** and drag. Hold ⇧ for straight lines; click a line and press ⌫ to delete it. **Export PDF…** saves the measurements as standard PDF annotations. Calibrations and measurements are saved per file. Measuring also works on plain PDFs (Open With → Supernote Viewer, or the Finder Quick Action **Measure in Supernote Viewer**).
+For floor plans and sketches: choose **Calibrate** and drag along a length you know (e.g. `2,23 m`), then choose **Measure** and drag. Hold ⇧ for straight lines; click a line and press ⌫ to delete it. **Export PDF…** saves the measurements as standard PDF annotations. Calibrations and measurements are saved per file. Measuring also works on plain PDFs (Open With → Sumi for Supernote, or the Finder Quick Action **Measure in Sumi for Supernote**).
 
 ## Install
 
 1. Download the **.dmg** from the [latest release](https://github.com/schaefer-dev/supernote-viewer/releases/latest).
 2. Open it and drag both apps to **Applications**. The apps are signed, so they should open without any security warnings.
-3. Open **Supernote Viewer** once. This turns on the Quick Look extension.
+3. Open **Sumi for Supernote** once. This turns on the Quick Look extension.
 4. Choose which app opens your files. In Finder, select a `.note` file → **Get Info** → **Open with** → pick an app → **Change All…**. Do the same for a `.mark` file.
-   - **Supernote Viewer** if you want thumbnails, live reload or measuring.
+   - **Sumi for Supernote** if you want thumbnails, live reload or measuring.
    - **Supernote Preview Bridge** if you'd rather annotate, sign or print in Preview.
 
    To try one without changing the default, right-click a file → **Open With**.
 
-<p align="center"><img src="docs/images/open-with.jpg" alt="Finder's Open With menu listing Supernote Preview Bridge and Supernote Viewer" width="520"></p>
+<p align="center"><img src="docs/images/open-with.jpg" alt="Finder's Open With menu listing Supernote Preview Bridge and Sumi for Supernote" width="520"></p>
 
 If Quick Look previews don't show up, check that **Supernote Quick Look** is turned on under System Settings → General → Login Items & Extensions → Quick Look.
 
@@ -88,7 +88,7 @@ This builds both apps and installs them to `/Applications`, replacing a copy ins
   - `swift run -c release snrender <file> out.pdf [--png outdir] [--dpi n] [--bitmap] [--ocr] [--benchmark [n]]` renders a file from the command line. With `--ocr` it also prints the text layer and the table of contents. With `--benchmark` it renders the file n more times (default 5) after a warm-up and prints total and per-page timings. Use a release build for meaningful numbers.
 - `QuickLookPreview/`: the Quick Look extension. It is data-based and returns a PDF built by `PDFRenderer`.
 - `Shared/`: the render cache used by both apps.
-- `Viewer/`: Supernote Viewer. Its PDFKit window has thumbnails, live reload and measuring. It exports the `.note` and `.mark` file types.
+- `Viewer/`: Sumi for Supernote. Its PDFKit window has thumbnails, live reload and measuring. It exports the `.note` and `.mark` file types.
 - `Bridge/`: Supernote Preview Bridge. It hands rendered PDFs to Preview. It imports the file types, so it works on its own.
 - `project.yml`: the XcodeGen spec. The `.xcodeproj` is generated from it.
 - `Viewer/AppIcon.icon`, `Bridge/AppIcon.icon`: the app icons, made for Icon Composer (layers, glass, light-only appearance). Xcode builds the macOS 13–15 images from them.
@@ -128,7 +128,7 @@ Format notes come from [supernotelib](https://github.com/jya-dev/supernote-tool)
 
 ## iPhone and iPad (iOS 26+)
 
-The native online reader is in `ViewerIOS/`. It supports Dropbox browsing/opening,
+The iPhone and iPad app, **Sumi** (Sumi for Supernote on the App Store), is in `ViewerIOS/`. It supports Dropbox browsing/opening,
 opening documents shared from other apps, PDFKit reading/search, a page grid and
 titles, PDF export, recents and local Dropbox favorites. Star whole documents from
 document lists, or bookmark the current page from the reader; bookmarks show the

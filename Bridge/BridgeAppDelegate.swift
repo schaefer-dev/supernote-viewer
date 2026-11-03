@@ -100,7 +100,7 @@ struct InfoView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Supernote Preview Bridge").font(.title2.bold())
             Text("Opens .note and .pdf.mark files in Preview, with sharp handwriting you can search, select and highlight.")
-            Text("Prefer Supernote's own window with thumbnails, live reload and measuring? Make Supernote Viewer the default instead: in Finder, select a .note file → Get Info → Open with → Supernote Viewer → Change All… (and the same for a .mark file). Switch back the same way.")
+            Text("Prefer Supernote's own window with thumbnails, live reload and measuring? Make Sumi for Supernote the default instead: in Finder, select a .note file → Get Info → Open with → Sumi for Supernote → Change All… (and the same for a .mark file). Switch back the same way.")
                 .foregroundStyle(.secondary)
             Text("Preview opens a generated copy. To keep your Preview annotations, use File → Export or Duplicate. If the notebook changes, the copy is regenerated, but a copy you saved changes to is never overwritten.")
                 .foregroundStyle(.secondary)

@@ -1,6 +1,6 @@
 // Writes an app's icon as macOS renders it, glass included: a 512 px .png (README banner) or an
 // .icns (DMG volume icon).
-//   swift Artwork/app-icon.swift "<path>/Supernote Viewer.app" <out>.png|<out>.icns
+//   swift Artwork/app-icon.swift "<path>/Sumi for Supernote.app" <out>.png|<out>.icns
 import AppKit
 
 let args = CommandLine.arguments

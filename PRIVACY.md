@@ -1,8 +1,8 @@
-# Privacy Policy — Supernote Viewer
+# Privacy Policy — Sumi for Supernote
 
 _Last updated: 1 November 2026_
 
-Supernote Viewer for iPhone and iPad (the "app") displays Supernote notebooks
+Sumi for Supernote on iPhone and iPad (the "app") displays Supernote notebooks
 (`.note`) and annotated PDFs (`.mark` with their original PDF) on your device.
 This policy explains what data the app handles. In short: **the developer
 collects no data at all.**

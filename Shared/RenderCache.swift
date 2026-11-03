@@ -2,7 +2,7 @@ import AppKit
 import CryptoKit
 import SupernoteKit
 
-/// Renders Supernote files to PDFs in a cache shared by Supernote Viewer and Supernote Preview Bridge.
+/// Renders Supernote files to PDFs in a cache shared by Sumi for Supernote and Supernote Preview Bridge.
 @MainActor
 enum RenderCache {
     static let cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -150,7 +150,7 @@ final class ProgressPanel {
     init(title: String) {
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 340, height: 76),
                         styleMask: [.titled, .utilityWindow], backing: .buffered, defer: true)
-        panel.title = "Supernote Viewer"
+        panel.title = "Sumi for Supernote"
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
 

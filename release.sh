@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 
 TEAM=VYPW8U86QN
 NOTARY_PROFILE=supernote-notary
-APPS=("Supernote Viewer" "Supernote Preview Bridge")
+APPS=("Sumi for Supernote" "Supernote Preview Bridge")
 SCHEMES=("SupernoteViewer" "SupernotePreviewBridge")
 VERSION=$(sed -n 's/^ *MARKETING_VERSION: *"\(.*\)"/\1/p' project.yml)
 DMG="dist/SupernoteViewer-$VERSION.dmg"
@@ -62,7 +62,7 @@ ln -s /Applications "$STAGING/Applications"
 swift Artwork/app-icon.swift "$PRODUCTS/${APPS[1]}.app" "$STAGING/.VolumeIcon.icns"
 mkdir -p dist
 rm -f "$DMG"
-hdiutil create -volname "Supernote Viewer $VERSION" -srcfolder "$STAGING" -format UDRW -quiet "$WORK/rw.dmg"
+hdiutil create -volname "Sumi for Supernote $VERSION" -srcfolder "$STAGING" -format UDRW -quiet "$WORK/rw.dmg"
 hdiutil attach "$WORK/rw.dmg" -mountpoint "$WORK/mnt" -nobrowse -noautoopen -quiet
 SetFile -a C "$WORK/mnt"
 hdiutil detach "$WORK/mnt" -quiet
@@ -88,6 +88,6 @@ spctl -a -t open --context context:primary-signature -vv "$DMG"
 
 if [[ "${1:-}" == "--publish" ]]; then
   echo "==> Publishing v$VERSION"
-  gh release create "v$VERSION" "$DMG" --title "Supernote Viewer $VERSION" --generate-notes
+  gh release create "v$VERSION" "$DMG" --title "Sumi for Supernote $VERSION" --generate-notes
 fi
 echo "Done: $DMG"

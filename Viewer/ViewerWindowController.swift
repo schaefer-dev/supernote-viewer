@@ -3,7 +3,7 @@ import PDFKit
 import SupernoteKit
 import UniformTypeIdentifiers
 
-/// Supernote Viewer's document window: a PDF view with a thumbnails sidebar, live reload when the
+/// Sumi for Supernote's document window: a PDF view with a thumbnails sidebar, live reload when the
 /// source file changes (e.g. after a Supernote sync), and calibrated distance measuring.
 @MainActor
 final class ViewerWindowController: NSWindowController, NSWindowDelegate {
@@ -170,7 +170,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             do {
                 reload(from: try await RenderCache.preparePDF(for: source))
             } catch {
-                NSLog("Supernote Viewer: reloading %@ failed: %@", source.path, "\(error)")
+                NSLog("Sumi: reloading %@ failed: %@", source.path, "\(error)")
             }
         }
     }
@@ -187,7 +187,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         if let page = document.page(at: min(pageIndex, max(document.pageCount - 1, 0))) { pdfView.go(to: page) }
         lastUpdated = Date()
         rebuildAnnotations()
-        NSLog("Supernote Viewer: reloaded %@ (%d pages)", source.lastPathComponent, document.pageCount)
+        NSLog("Sumi: reloaded %@ (%d pages)", source.lastPathComponent, document.pageCount)
     }
 
     // MARK: - Interaction

@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Supernote Viewer does not track users and collects no data: documents and
+	<!-- Sumi for Supernote does not track users and collects no data: documents and
 	     Dropbox credentials stay on the device and go only to the user's Dropbox. -->
 	<key>NSPrivacyTracking</key>
 	<false/>

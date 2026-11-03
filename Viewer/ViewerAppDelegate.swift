@@ -3,8 +3,8 @@ import PDFKit
 import SupernoteKit
 import UniformTypeIdentifiers
 
-/// Supernote Viewer: opens .note, .mark and PDF files in its own windows (thumbnails, live reload,
-/// measuring). Also provides the "Measure in Supernote Viewer" Finder service.
+/// Sumi for Supernote: opens .note, .mark and PDF files in its own windows (thumbnails, live reload,
+/// measuring). Also provides the "Measure in Sumi for Supernote" Finder service.
 @main
 final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
     private var receivedFiles = false
@@ -42,7 +42,7 @@ final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    /// Finder service "Measure in Supernote Viewer" (NSServices in Info.plist).
+    /// Finder service "Measure in Sumi for Supernote" (NSServices in Info.plist).
     @objc func measureFiles(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
         receivedFiles = true
         let urls = (pasteboard.readObjects(forClasses: [NSURL.self],
@@ -118,10 +118,10 @@ final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
             return item
         }
         let main = NSMenu()
-        main.addItem(submenu("Supernote Viewer", [
-            item("Hide Supernote Viewer", #selector(NSApplication.hide(_:)), "h"),
+        main.addItem(submenu("Sumi for Supernote", [
+            item("Hide Sumi for Supernote", #selector(NSApplication.hide(_:)), "h"),
             .separator(),
-            item("Quit Supernote Viewer", #selector(NSApplication.terminate(_:)), "q"),
+            item("Quit Sumi for Supernote", #selector(NSApplication.terminate(_:)), "q"),
         ]))
         main.addItem(submenu("File", [
             item("Open…", #selector(ViewerAppDelegate.openDocument(_:)), "o"),

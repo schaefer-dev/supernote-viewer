@@ -2,13 +2,13 @@
   "fill-specializations": [
     {
       "value": {
-        "solid": "srgb:0.91373,0.90980,0.88627,1.00000"
+        "solid": "srgb:0.92941,0.91373,0.87451,1.00000"
       }
     },
     {
       "appearance": "dark",
       "value": {
-        "solid": "srgb:0.91373,0.90980,0.88627,1.00000"
+        "solid": "srgb:0.92941,0.91373,0.87451,1.00000"
       }
     }
   ],
@@ -52,22 +52,9 @@
           ]
         },
         {
-          "image-name": "stroke.svg",
+          "image-name": "stroke.png",
           "name": "stroke",
-          "glass": false,
-          "fill-specializations": [
-            {
-              "value": {
-                "solid": "srgb:0.08235,0.08235,0.08235,1.00000"
-              }
-            },
-            {
-              "appearance": "dark",
-              "value": {
-                "solid": "srgb:0.08235,0.08235,0.08235,1.00000"
-              }
-            }
-          ]
+          "glass": false
         }
       ],
       "name": "Ink",
@@ -83,23 +70,9 @@
     {
       "layers": [
         {
-          "image-name": "rules.svg",
-          "name": "rules",
-          "glass": false,
-          "fill-specializations": [
-            {
-              "value": {
-                "solid": "srgb:0.11765,0.11765,0.09804,1.00000"
-              }
-            },
-            {
-              "appearance": "dark",
-              "value": {
-                "solid": "srgb:0.11765,0.11765,0.09804,1.00000"
-              }
-            }
-          ],
-          "opacity": 0.13
+          "image-name": "paper.png",
+          "name": "paper",
+          "glass": false
         }
       ],
       "name": "Paper",
