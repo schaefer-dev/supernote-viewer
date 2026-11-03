@@ -54,10 +54,10 @@
 
   /* macOS window */
   .win {
-    position: absolute; left: 660px; top: 58px; width: 580px; height: 640px;
+    position: absolute; left: 748px; top: 58px; width: 500px; height: 640px;
     background: var(--window); border-radius: 12px; overflow: hidden;
     box-shadow: 0 0 0 0.5px rgba(0,0,0,.28), 0 24px 60px rgba(0,0,0,.22), 0 6px 16px rgba(0,0,0,.10);
-    display: grid; grid-template-rows: 38px 1fr; grid-template-columns: 112px 1fr;
+    display: grid; grid-template-rows: 38px 1fr; grid-template-columns: 100px 1fr;
   }
   .bar {
     grid-column: 1 / -1; display: flex; align-items: center; padding: 0 14px; gap: 8px;
@@ -70,25 +70,37 @@
     padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; align-items: center;
   }
   .side figure { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .side img { width: 72px; display: block; box-shadow: 0 0 0 0.5px rgba(0,0,0,.25), 0 1px 3px rgba(0,0,0,.12); }
+  .side img { width: 64px; display: block; box-shadow: 0 0 0 0.5px rgba(0,0,0,.25), 0 1px 3px rgba(0,0,0,.12); }
   .side figure.sel img { outline: 3px solid #8f8f8b; outline-offset: 3px; border-radius: 1px; }
   .side figcaption { font-size: 10px; color: #6b6b67; }
   .main { background: var(--canvas); padding: 22px 0 0; display: flex; justify-content: center; }
-  .main img { width: 404px; height: fit-content; display: block; box-shadow: 0 1px 4px rgba(0,0,0,.18); }
+  .main img { width: 352px; height: fit-content; display: block; box-shadow: 0 1px 4px rgba(0,0,0,.18); }
+
+  /* iPhone in front of the window's lower left corner; iphone.png is a simulator screenshot. */
+  .phone {
+    position: absolute; left: 652px; top: 214px; width: 226px; height: 486px;
+    background: #121212; border-radius: 46px; padding: 8px;
+    box-shadow: 0 0 0 1.5px #3a3a3a, 0 0 0 3px #1a1a1a, 0 30px 60px rgba(0,0,0,.30), 0 8px 18px rgba(0,0,0,.16);
+  }
+  .phone img { width: 100%; display: block; border-radius: 38px; }
+  .phone .island {
+    position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+    width: 68px; height: 20px; border-radius: 10px; background: #050505;
+  }
 </style>
 </head>
 <body>
   <div class="copy">
     <div class="head"><img src="app-icon.png" alt=""><h1>Sumi for Supernote</h1></div>
-    <p class="pitch">Open your Supernote notebooks and marked-up PDFs right on your Mac.</p>
+    <p class="pitch">Read your Supernote notebooks and marked-up PDFs on Mac, iPhone and iPad.</p>
     <ul>
-      <li><svg viewBox="0 0 22 22"><path d="M3 12.5 Q6 14 8.5 18 Q12 8 20 3.5" fill="none" stroke="#151515" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Press Space in Finder for a Quick Look preview</li>
-      <li><svg viewBox="0 0 22 22"><path d="M3 12.5 Q6 14 8.5 18 Q12 8 20 3.5" fill="none" stroke="#151515" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Search and select your handwriting in Preview</li>
-      <li><svg viewBox="0 0 22 22"><path d="M3 12.5 Q6 14 8.5 18 Q12 8 20 3.5" fill="none" stroke="#151515" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Measure plans to scale, export as PDF</li>
-      <li><svg viewBox="0 0 22 22"><path d="M3 12.5 Q6 14 8.5 18 Q12 8 20 3.5" fill="none" stroke="#151515" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Updates live when your Supernote syncs</li>
+      <li><svg viewBox="0 0 22 22"><path d="M3 12.5 Q6 14 8.5 18 Q12 8 20 3.5" fill="none" stroke="#151515" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Quick Look and searchable handwriting on Mac</li>
+      <li><svg viewBox="0 0 22 22"><path d="M3 12.5 Q6 14 8.5 18 Q12 8 20 3.5" fill="none" stroke="#151515" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Your Dropbox library on iPhone and iPad</li>
+      <li><svg viewBox="0 0 22 22"><path d="M3 12.5 Q6 14 8.5 18 Q12 8 20 3.5" fill="none" stroke="#151515" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Search, page titles and bookmarks</li>
+      <li><svg viewBox="0 0 22 22"><path d="M3 12.5 Q6 14 8.5 18 Q12 8 20 3.5" fill="none" stroke="#151515" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Live reload when your Supernote syncs</li>
     </ul>
   </div>
-  <p class="foot">Free and open source for macOS 13 and later</p>
+  <p class="foot">Free and open source · macOS 13+ · iOS and iPadOS 26+</p>
 
   <div class="win">
     <div class="bar">
@@ -102,5 +114,7 @@
     </div>
     <div class="main"><img src="note.png" alt=""></div>
   </div>
+
+  <div class="phone"><img src="iphone.png" alt=""><span class="island"></span></div>
 </body>
 </html>

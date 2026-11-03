@@ -1,44 +1,66 @@
 <p align="center">
-  <img src="docs/images/hero.png" alt="Sumi for Supernote: open your Supernote notebooks and marked-up PDFs right on your Mac" width="100%">
+  <img src="docs/images/hero.png" alt="Sumi for Supernote: read your Supernote notebooks and marked-up PDFs on Mac, iPhone and iPad" width="100%">
 </p>
 
 <p align="center">
   <a href="https://github.com/schaefer-dev/supernote-viewer/releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/schaefer-dev/supernote-viewer?label=download&color=333"></a>
   <img alt="macOS 13+" src="https://img.shields.io/badge/macOS-13%2B-333">
+  <img alt="iOS and iPadOS 26+" src="https://img.shields.io/badge/iOS%20%26%20iPadOS-26%2B-333">
   <img alt="Swift" src="https://img.shields.io/badge/Swift-5-333">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-333"></a>
 </p>
 
-Your Supernote syncs `.note` notebooks and `.pdf.mark` annotations to your Mac, but macOS can't open them. These two small apps fix that. Notebooks open with a double-click, preview with Space and can be searched like any other PDF. Everything runs on your Mac: no cloud, no account, no network access.
+Your Supernote syncs `.note` notebooks and `.pdf.mark` annotations, but neither macOS nor iOS can open them. **Sumi for Supernote** fixes that on your Mac, iPhone and iPad. Handwriting is drawn as crisp vector ink from the notebook's own pen data and made searchable with on-device text recognition. No sign-up and no tracking: your notes stay on your devices and in your own Dropbox.
 
-- **Sumi for Supernote** opens notes in its own window, with thumbnails, live reload and a measuring tool.
-- **Supernote Preview Bridge** turns notes into PDFs and opens them in Apple's **Preview**, so you keep the tools you already know.
+| | App | What it does |
+|---|---|---|
+| **Mac** | **Sumi for Supernote** | Opens notes in its own window, with thumbnails, live reload and a measuring tool. |
+| **Mac** | **Supernote Preview Bridge** | Turns notes into PDFs and opens them in Apple's **Preview**, so you keep the tools you already know. |
+| **iPhone & iPad** | **Sumi** | Reads the notebooks and annotated PDFs your Supernote syncs to Dropbox, with search, page titles, bookmarks and favorites. |
 
-You pick which one opens your files on double-click. Both come with Quick Look.
+On the Mac, both apps come with Quick Look, and you pick which one opens your files on double-click.
 
 ## Features
 
-### Opens in Preview, with searchable handwriting
+### On your Mac
+
+#### Opens in Preview, with searchable handwriting
 
 Double-click a notebook and it opens in Apple's Preview. Handwriting is drawn as vector strokes from the notebook's own pen data, so it stays crisp at any zoom. Apple's on-device text recognition adds an invisible text layer (English and German), so you can search with ⌘F and select and copy your handwriting. Typed text boxes and marker highlights come through as well. Titles you mark on the Supernote become the PDF's table of contents (View → Table of Contents), so you can jump between sections.
 
 <p align="center"><img src="docs/images/preview.jpg" alt="A Supernote notebook opened in Preview" width="520"></p>
 
-### Quick Look in Finder
+#### Quick Look in Finder
 
 Select a `.note` or `.pdf.mark` file and press Space for a full preview without opening any app.
 
-### Sumi for Supernote: its own window, with live reload
+#### Sumi for Supernote: its own window, with live reload
 
 Marked-up PDFs show your handwriting on top of the original document. There's a thumbnails sidebar (⌥⌘2). When your Supernote syncs a change, the open window updates by itself, so you can keep a notebook open on your Mac while you write on the device.
 
 <p align="center"><img src="docs/images/viewer.jpg" alt="Sumi for Supernote showing a PDF with handwritten Supernote annotations" width="640"></p>
 
-### Measure plans to scale
+#### Measure plans to scale
 
 For floor plans and sketches: choose **Calibrate** and drag along a length you know (e.g. `2,23 m`), then choose **Measure** and drag. Hold ⇧ for straight lines; click a line and press ⌫ to delete it. **Export PDF…** saves the measurements as standard PDF annotations. Calibrations and measurements are saved per file. Measuring also works on plain PDFs (Open With → Sumi for Supernote, or the Finder Quick Action **Measure in Sumi for Supernote**).
 
-## Install
+### On iPhone and iPad
+
+**Sumi** brings the same renderer to iPhone and iPad (iOS and iPadOS 26 or later).
+
+- **Your Supernote library from Dropbox.** Connect Dropbox with read-only access, choose the folder your Supernote syncs to, and browse your notebooks and annotated PDFs. Sumi never changes, uploads or deletes anything.
+- **Ready offline.** Turn on **Sync All When App Opens** and new and changed documents in your library folder are downloaded each time Sumi opens, so they're there when you're not online.
+- **Search your handwriting.** Find words in handwritten notes, jump through matches, and open a page grid with the titles you marked on the Supernote.
+- **Bookmarks and favorites.** Star whole documents or bookmark a page; bookmarks show the page's handwritten title. Home keeps favorites and recent documents one tap away.
+- **Opens shared files too.** Open a `.note` or `.pdf.mark` from Files, Mail or any other app, and export any document as a PDF.
+
+<p align="center">
+  <img src="docs/images/iphone.jpg" alt="Sumi on iPhone showing a handwritten notebook with titles" width="230">
+  &nbsp;&nbsp;
+  <img src="docs/images/ipad.jpg" alt="Sumi on iPad showing a handwritten notebook" width="400">
+</p>
+
+## Install on your Mac
 
 1. Download the **.dmg** from the [latest release](https://github.com/schaefer-dev/supernote-viewer/releases/latest).
 2. Open it and drag both apps to **Applications**. The apps are signed, so they should open without any security warnings.
@@ -90,8 +112,9 @@ This builds both apps and installs them to `/Applications`, replacing a copy ins
 - `Shared/`: the render cache used by both apps.
 - `Viewer/`: Sumi for Supernote. Its PDFKit window has thumbnails, live reload and measuring. It exports the `.note` and `.mark` file types.
 - `Bridge/`: Supernote Preview Bridge. It hands rendered PDFs to Preview. It imports the file types, so it works on its own.
+- `ViewerIOS/`: Sumi for iPhone and iPad (SwiftUI). It reads documents from Dropbox with read-only access and renders them with SupernoteKit. `ViewerIOSUITests/` drives it with the files in `examples/`.
 - `project.yml`: the XcodeGen spec. The `.xcodeproj` is generated from it.
-- `Viewer/AppIcon.icon`, `Bridge/AppIcon.icon`: the app icons, made for Icon Composer (layers, glass, light-only appearance). Xcode builds the macOS 13–15 images from them.
+- `Viewer/AppIcon.icon`, `Bridge/AppIcon.icon`, `ViewerIOS/AppIcon.icon`: the app icons, made for Icon Composer (layers, glass, light-only appearance). Xcode builds the macOS 13–15 images from them. The brush S and washi layers are PNGs rendered by `Artwork/render.sh`; `Artwork/sumi/` has the brand artwork.
 - `Artwork/`: icon sources. `render.sh` regenerates the icon layers and the `.note`/`.mark` document icons (`Shared/*.icns`) from `artwork.py`. `release.sh` uses `app-icon.swift` for the DMG volume icon, and the README banner uses it too.
 - `docs/hero/`: source of the README banner (`render.sh` regenerates it).
 
@@ -125,16 +148,3 @@ Format notes come from [supernotelib](https://github.com/jya-dev/supernote-tool)
 ## License
 
 [MIT](LICENSE). Not affiliated with Ratta or Supernote.
-
-## iPhone and iPad (iOS 26+)
-
-The iPhone and iPad app, **Sumi** (Sumi for Supernote on the App Store), is in `ViewerIOS/`. It supports Dropbox browsing/opening,
-opening documents shared from other apps, PDFKit reading/search, a page grid and
-titles, PDF export, recents and local Dropbox favorites. Star whole documents from
-document lists, or bookmark the current page from the reader; bookmarks show the
-page's handwritten title and number. Home provides quick access, and the full
-Favorites list supports manual ordering. Favoriting does not download documents
-automatically. It displays a complete preview before handwriting OCR.
-See [iOS setup and validation](docs/ios-implementation.md) for configuration,
-build commands and outstanding real-account/physical-device checks. Offline
-pinning and synchronization remain [later roadmap work](docs/ios-port-plan.md).
