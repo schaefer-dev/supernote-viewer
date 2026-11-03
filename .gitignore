@@ -67,3 +67,10 @@ __pycache__/
 docs/
 CLAUDE.md
 AGENTS.md
+
+# App Store: keys and store material never live in this public repository
+*.p8
+AuthKey_*
+*.mobileprovision
+appstore-out/
+fastlane/

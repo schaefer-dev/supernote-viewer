@@ -8,10 +8,25 @@ enum LibraryRoute: Hashable {
     case folder(RemoteEntry)
 }
 
+/// What the view's single file importer is choosing.
+private enum ImportRequest { case original, documents }
+
+/// Public pages for the app on the developer's website.
+enum AppLinks {
+    static let support = URL(string: "https://schaefer-dev.de/sumi/support/")!
+    static let privacy = URL(string: "https://schaefer-dev.de/sumi/privacy/")!
+    static let contact = URL(string: "mailto:sumi@schaefer-dev.de")!
+}
+
+extension UTType {
+    static let supernoteNote = UTType(exportedAs: "dev.schaefer.supernote.note")
+    static let supernoteMark = UTType(exportedAs: "dev.schaefer.supernote.mark")
+}
+
 struct LibraryView: View {
     @Bindable var library: MobileLibrary
     @State private var compactColumn: NavigationSplitViewColumn = .sidebar
-    @State private var importingOriginal = false
+    @State private var importer: ImportRequest?
     @State private var showingSettings = false
     @State private var columns: NavigationSplitViewVisibility = .all
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -21,7 +36,7 @@ struct LibraryView: View {
         NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
             NavigationStack(path: $library.path) {
                 HomeView(library: library, showSettings: { showingSettings = true },
-                         opened: { compactColumn = .detail })
+                         opened: { compactColumn = .detail }, openFiles: { importer = .documents })
                     .navigationDestination(for: LibraryRoute.self) { route in
                         switch route {
                         case .favorites: FavoritesView(library: library, opened: { compactColumn = .detail })
@@ -59,14 +74,14 @@ struct LibraryView: View {
         }
         // Annotations handed over by another app may still need their original PDF. This must stay the
         // only .fileImporter on this view: SwiftUI honours just the last one attached.
-        .sheet(isPresented: Binding(get: { library.pendingImport != nil && !importingOriginal }, set: { if !$0 && !importingOriginal { library.pendingImport = nil } })) {
+        .sheet(isPresented: Binding(get: { library.pendingImport != nil && importer != .original }, set: { if !$0 && importer != .original { library.pendingImport = nil } })) {
             NavigationStack {
                 ContentUnavailableView {
                     Label("Original PDF Needed", systemImage: "doc.richtext")
                 } description: {
                     Text("These annotations belong to a PDF. Choose the original to see them in place, or select both files together next time.")
                 } actions: {
-                    Button("Choose Original PDF") { importingOriginal = true }.buttonStyle(.borderedProminent)
+                    Button("Choose Original PDF") { importer = .original }.buttonStyle(.borderedProminent)
                     Button("Open Annotations Only") {
                         if let url = library.pendingImport { library.openImport(url, companion: nil, annotationsOnly: true) }
                         library.pendingImport = nil; compactColumn = .detail
@@ -75,9 +90,15 @@ struct LibraryView: View {
                 .toolbar { Button("Cancel") { library.pendingImport = nil } }
             }.presentationDetents([.medium])
         }
-        .fileImporter(isPresented: $importingOriginal, allowedContentTypes: [.pdf]) { result in
-            switch result { case .success(let url): library.importFiles([url]); compactColumn = .detail
-            case .failure(let error): library.importError = error.localizedDescription }
+        .fileImporter(isPresented: Binding(get: { importer != nil }, set: { if !$0 { importer = nil } }),
+                      allowedContentTypes: importer == .documents ? [.supernoteNote, .supernoteMark, .pdf] : [.pdf],
+                      allowsMultipleSelection: importer == .documents) { result in
+            switch result {
+            case .success(let urls):
+                guard !urls.isEmpty else { return }
+                library.importFiles(urls); compactColumn = .detail
+            case .failure(let error): library.importError = error.localizedDescription
+            }
         }
         .alert("Unable to Open", isPresented: Binding(get: { library.importError != nil }, set: { if !$0 { library.importError = nil } })) {
             Button("OK") { library.importError = nil }
@@ -92,6 +113,7 @@ private struct HomeView: View {
     @Bindable var library: MobileLibrary
     let showSettings: () -> Void
     let opened: () -> Void
+    let openFiles: () -> Void
     private static let pageSize = 10
     @State private var recentLimit = Self.pageSize
     private var connected: Bool { library.session.state == .connected && library.session.accountID != nil }
@@ -160,6 +182,25 @@ private struct HomeView: View {
                             Text("Load More").frame(maxWidth: .infinity)
                         }
                     }
+                }
+            }
+            // Ways in without Dropbox, for trying the app (and App Review). Hidden once Dropbox is connected.
+            if library.session.state != .connected {
+                Section {
+                    Menu {
+                        ForEach(SampleDocument.allCases) { sample in
+                            Button(sample.title, systemImage: sample.systemImage) { library.openSample(sample); opened() }
+                        }
+                    } label: {
+                        Label("Try a Sample Notebook", systemImage: "book.pages")
+                    }
+                    .accessibilityIdentifier("Try a Sample Notebook")
+                    Button("Open from Files…", systemImage: "folder", action: openFiles)
+                        .accessibilityIdentifier("Open from Files")
+                } header: {
+                    Text("Without Dropbox")
+                } footer: {
+                    Text("Opened files are shown for this session only. Select an annotation file together with its PDF.")
                 }
             }
         }
@@ -579,10 +620,15 @@ private struct SettingsView: View {
                 } header: { Text("Offline") } footer: {
                     Text("Opened and synced documents are kept on this \(deviceName) in their newest version, so they open instantly and without a connection. Removing them never changes your Dropbox.")
                 }
-                Section("About") {
+                Section {
                     LabeledContent("Version", value: Self.version)
-                    Text("Sumi reads your notebooks with read-only Dropbox access. It never changes, uploads or deletes your files.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                    Link(destination: AppLinks.support) { Label("Help & Support", systemImage: "questionmark.circle") }
+                    Link(destination: AppLinks.contact) { Label("Contact", systemImage: "envelope") }
+                    Link(destination: AppLinks.privacy) { Label("Privacy Policy", systemImage: "hand.raised") }
+                } header: {
+                    Text("About")
+                } footer: {
+                    Text("Sumi reads your notebooks with read-only Dropbox access. It never changes, uploads or deletes your files.\n\nSupernote is a trademark of Ratta and is used with permission.")
                 }
             }
             .navigationTitle("Settings")

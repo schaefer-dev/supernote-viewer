@@ -6,9 +6,9 @@
 
 **Description:** Read your Supernote notebooks and annotated PDFs from Dropbox on iPhone and iPad. Browse your files, search recognized handwriting, navigate notebook titles, and export PDFs. Dropbox access is read-only: the app never changes, uploads, or deletes your files.
 
-**App website:** https://github.com/schaefer-dev/supernote-viewer
+**App website:** https://schaefer-dev.de/sumi/
 
-**Privacy policy URL (if requested):** https://github.com/schaefer-dev/supernote-viewer/blob/main/PRIVACY.md
+**Privacy policy URL (if requested):** https://schaefer-dev.de/sumi/privacy/
 
 **App icons:**
 

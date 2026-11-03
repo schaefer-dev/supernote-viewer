@@ -133,19 +133,23 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: ViewerIOS
-        excludes: [Configuration]
+        excludes: [Configuration, ExportOptions.plist]
+      # Bundled sample documents for trying the app without Dropbox (and for App Review).
+      - path: examples
+        type: folder
+        buildPhase: resources
     configFiles:
       Debug: ViewerIOS/Configuration/Base.xcconfig
       Release: ViewerIOS/Configuration/Base.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.SupernoteViewerIOS
+        PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.Sumi
         PRODUCT_NAME: SupernoteViewerIOS
         CURRENT_PROJECT_VERSION: "21"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: Apple Development
-        DEVELOPMENT_TEAM: ""
+        DEVELOPMENT_TEAM: VYPW8U86QN
         ENABLE_HARDENED_RUNTIME: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SUPPORTS_MACCATALYST: NO
@@ -172,7 +176,7 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        BGTaskSchedulerPermittedIdentifiers: ["dev.schaefer.SupernoteViewerIOS.sync.*"]
+        BGTaskSchedulerPermittedIdentifiers: ["dev.schaefer.Sumi.sync.*"]
         # Only HTTPS through Apple's networking stack: exempt from export documentation.
         ITSAppUsesNonExemptEncryption: false
     dependencies:
@@ -195,9 +199,10 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.Sumi.Tests
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: Apple Development
-        DEVELOPMENT_TEAM: ""
+        DEVELOPMENT_TEAM: VYPW8U86QN
     dependencies:
       - target: SupernoteViewerIOS
 
@@ -211,7 +216,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: Apple Development
-        DEVELOPMENT_TEAM: ""
+        PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.Sumi.UITests
+        DEVELOPMENT_TEAM: VYPW8U86QN
         TEST_TARGET_NAME: SupernoteViewerIOS
     dependencies:
       - target: SupernoteViewerIOS

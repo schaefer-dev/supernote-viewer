@@ -136,6 +136,19 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Browse Dropbox"].waitForExistence(timeout: 5))
         let dropbox = XCTAttachment(screenshot: app.screenshot()); dropbox.name = "Browse Dropbox"; dropbox.lifetime = .keepAlways; add(dropbox)
     }
+    /// Without Dropbox, Home offers the bundled samples (what App Review uses) and Open from Files.
+    @MainActor func testSampleNotebookOpensWithoutDropbox() throws {
+        let app = XCUIApplication()
+        app.launch()
+        let samples = app.buttons["Try a Sample Notebook"]
+        guard samples.waitForExistence(timeout: 10) else { throw XCTSkip("Dropbox is connected on this simulator") }
+        XCTAssertTrue(app.buttons["Open from Files"].exists)
+        samples.tap()
+        app.buttons["Annotated PDF"].tap()
+        XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30), "The bundled annotated PDF opens with its original")
+        XCTAssertTrue(app.navigationBars.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Garmin")).firstMatch.exists
+                      || app.staticTexts["Document Title"].label.contains("Garmin"))
+    }
     @MainActor func testAnnotatedPDFOpens() {
         let app = Fixture.launch(opening: Fixture.annotated)
         XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30))

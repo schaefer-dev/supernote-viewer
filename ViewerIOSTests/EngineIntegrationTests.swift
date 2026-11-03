@@ -21,7 +21,7 @@ import SupernoteKit
         }
     }
     func testBundledAnnotatedPDFAndOriginalText() async throws {
-        // The repository's examples are read in place; the app no longer bundles them.
+        // The repository's examples are read in place here; the app also bundles them as samples.
         let examples = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("examples")
         let mark = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: examples, includingPropertiesForKeys: nil).first { $0.pathExtension == "mark" })
         let workspace = try Workspace()
@@ -32,6 +32,21 @@ import SupernoteKit
         let pdf = try XCTUnwrap(PDFDocument(url: output)), original = try XCTUnwrap(PDFDocument(url: companion))
         XCTAssertGreaterThanOrEqual(pdf.pageCount, original.pageCount)
         XCTAssertFalse((pdf.string ?? "").isEmpty, "Original PDF text must be searchable before handwriting OCR")
+    }
+    /// The samples offered on Home before Dropbox is connected (and used by App Review) ship in the
+    /// app bundle and render.
+    func testBundledSamplesRender() async throws {
+        let workspace = try Workspace()
+        for sample in SampleDocument.allCases {
+            let url = try XCTUnwrap(sample.url, "\(sample) is not bundled")
+            if sample == .annotatedPDF {
+                XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(sample.companion).path), "original PDF is not bundled")
+            }
+            let output = workspace.url.appendingPathComponent(UUID().uuidString + ".pdf")
+            try await EngineRenderer().render(.init(source: url, companion: sample.companion, workspace: workspace), to: output,
+                                              recognize: false, token: CancellationToken(), progress: { _, _ in })
+            XCTAssertGreaterThan(try XCTUnwrap(PDFDocument(url: output)).pageCount, 0, "\(sample)")
+        }
     }
     func testOrdinaryPDFBypassesRenderingAndLocksAreRejected() async throws {
         let workspace = try Workspace()
