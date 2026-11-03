@@ -1,11 +1,11 @@
 #!/bin/zsh
-# Builds Supernote Viewer and Supernote Preview Bridge, installs both to /Applications (where the
-# release DMG puts them) and refreshes Launch Services, Finder services and Quick Look. Never changes the default app.
+# Builds Sumi for Supernote, installs it to /Applications (where the
+# release DMG puts it) and refreshes Launch Services, Finder services and Quick Look. Never changes the default app.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APPS=("Supernote Viewer" "Supernote Preview Bridge")
-SCHEMES=("SupernoteViewer" "SupernotePreviewBridge")
+APPS=("Sumi for Supernote")
+SCHEMES=("SupernoteViewer")
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
 # Signs ad-hoc unless DEVELOPMENT_TEAM is set, e.g. DEVELOPMENT_TEAM=ABCDE12345 ./install.sh
@@ -37,7 +37,20 @@ for app in "${APPS[@]}"; do
   echo "Installed /Applications/$app.app"
 done
 
+# Remove apps from earlier versions: the viewer was called "Supernote Viewer" up to 1.4.0 (same bundle ID), and
+# Supernote Preview Bridge was a separate app up to 1.4.0 (now Settings → Open Supernote files in → Preview).
+for name in "Supernote Viewer" "Supernote Preview Bridge"; do
+  for old in /Applications/"$name.app" ~/Applications/"$name.app"; do
+    if [[ -d "$old" ]]; then
+      pkill -f "$name.app/Contents/MacOS/$name" || true
+      "$LSREGISTER" -u "$old" 2>/dev/null || true
+      rm -rf "$old"
+      echo "Removed old $old"
+    fi
+  done
+done
+
 /System/Library/CoreServices/pbs -update  # refresh Finder services
 qlmanage -r >/dev/null 2>&1
 qlmanage -r cache >/dev/null 2>&1
-pluginkit -m -p com.apple.quicklook.preview | grep -i supernote || echo "warning: Quick Look extension not registered yet; open Supernote Viewer once"
+pluginkit -m -p com.apple.quicklook.preview | grep -i supernote || echo "warning: Quick Look extension not registered yet; open Sumi for Supernote once"

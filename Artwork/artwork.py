@@ -1,5 +1,9 @@
-"""Writes the icon artwork as SVG: the layers of Viewer/AppIcon.icon and Bridge/AppIcon.icon, and
-the .note/.mark document icons (Artwork/build/, turned into .icns by render.sh).
+"""Writes the icon artwork as SVG: the layers of the Viewer and ViewerIOS AppIcon.icon bundles,
+and the .note/.mark document icons (Artwork/build/, turned into .icns by render.sh).
+
+The app icon is the Sumi "Brush S on washi" (see Artwork/sumi/): the S painted with a brush on washi
+paper, with the indigo full stop. The brush and paper textures are SVG filters, which Icon Composer
+doesn't render, so render.sh turns those two layers into PNGs with headless Chrome.
 
 The ink stroke is a broad pen nib (an ellipse) swept along a Bézier path, so it has the thick and
 thin parts of handwriting. Edit the paths or colours here and run render.sh; layer placement,
@@ -17,6 +21,23 @@ INK = "#151515"
 RULE = "#1E1E19"
 BLUE = "#2B4C8C"
 SHEET = "#FFFFFF"
+WASHI = "#EDE9DF"
+
+# Brush texture: displaced (rough) edges, plus a few dry-brush gaps where streaky noise peaks.
+BRUSH_FILTER = ('<filter id="brush" x="-10%" y="-10%" width="120%" height="120%">'
+                '<feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="3" seed="3" result="n"/>'
+                '<feDisplacementMap in="SourceGraphic" in2="n" scale="9" xChannelSelector="R" yChannelSelector="G" '
+                'result="d"/>'
+                '<feTurbulence type="fractalNoise" baseFrequency="0.004 0.09" numOctaves="2" seed="11" result="s"/>'
+                '<feColorMatrix in="s" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -11 8.3" result="m"/>'
+                '<feComposite in="d" in2="m" operator="in"/></filter>')
+# Washi paper: soft fibrous mottling and a fine grain, both as translucent overlays.
+MOTTLE_FILTER = ('<filter id="mottle" x="0" y="0" width="100%" height="100%">'
+                 '<feTurbulence type="fractalNoise" baseFrequency="0.011" numOctaves="4" seed="21"/>'
+                 '<feColorMatrix values="0 0 0 0 .45  0 0 0 0 .40  0 0 0 0 .30  0 0 0 .16 -.02"/></filter>')
+GRAIN_FILTER = ('<filter id="grain" x="0" y="0" width="100%" height="100%">'
+                '<feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="7" stitchTiles="stitch"/>'
+                '<feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.075 0"/></filter>')
 
 # The cursive "S" on the 1024 canvas, as chained cubic Béziers, and the blue full stop after it.
 S_PATH = [(676, 322),
@@ -85,29 +106,27 @@ def s_mark():
     return f'<g fill="{INK}">{nib_stroke(S_PATH, S_WIDTH)}</g>'
 
 
-def dot():
+def dot(grow=0):
     x, y, r = DOT
-    return f'<circle cx="{x}" cy="{y}" r="{r}" fill="{BLUE}"/>'
+    return f'<circle cx="{x}" cy="{y}" r="{r + grow}" fill="{BLUE}"/>'
 
 
-def badge():
-    """Bridge badge: a PDF sheet with a folded corner and a blue arrow (hand-off to Preview)."""
-    x, y, w, h, f = 600, 556, 300, 372, 86
-    return (f'<path d="M{x + 18} {y} H{x + w - f} L{x + w} {y + f} V{y + h - 18} Q{x + w} {y + h} '
-            f'{x + w - 18} {y + h} H{x + 18} Q{x} {y + h} {x} {y + h - 18} V{y + 18} Q{x} {y} {x + 18} {y} Z" '
-            f'fill="{SHEET}"/>'
-            f'<path d="M{x + w - f} {y} V{y + f - 14} Q{x + w - f} {y + f} {x + w - f + 14} {y + f} H{x + w} Z" '
-            f'fill="#DCDBD5"/>'
-            f'<rect x="{x + 40}" y="{y + 120}" width="140" height="16" rx="8" fill="#BDBCB6"/>'
-            f'<rect x="{x + 40}" y="{y + 160}" width="110" height="16" rx="8" fill="#BDBCB6"/>'
-            f'<g transform="translate({x + w / 2 + 6} {y + h - 118})" stroke="{BLUE}" stroke-width="34" '
-            f'stroke-linecap="round" stroke-linejoin="round" fill="none">'
-            f'<path d="M-62 62 L58 -58"/><path d="M-6 -62 H62 V6"/></g>')
+def brush_s():
+    """The app icon's S, painted with a brush: wider, softer nib contrast, rough dry-brush edges."""
+    path = [(S_PATH[0][0] + 8, S_PATH[0][1] - 10)] + S_PATH[1:]
+    stroke = nib_stroke(path, 118, contrast=.22, taper_in=.04, taper_out=.16, min_w=.06)
+    return f'<defs>{BRUSH_FILTER}</defs><g filter="url(#brush)" fill="{INK}">{stroke}</g>'
 
 
-# --- Document icons ---------------------------------------------------------------------------
-# A page with a folded corner on the 1024 canvas, like the macOS document template.
-PX0, PY0, PX1, PY1, FOLD, R = 164, 60, 860, 964, 196, 36
+def washi_texture():
+    """The paper layer on top of the icon's washi fill: a soft vignette, mottling and grain."""
+    vignette = ('<radialGradient id="vig" cx="50%" cy="38%" r="75%">'
+                '<stop offset="0" stop-color="#fff" stop-opacity=".35"/>'
+                '<stop offset="1" stop-color="#8c887a" stop-opacity=".22"/></radialGradient>')
+    return (f'<defs>{vignette}{MOTTLE_FILTER}{GRAIN_FILTER}</defs>'
+            '<rect width="1024" height="1024" fill="url(#vig)"/>'
+            '<rect width="1024" height="1024" filter="url(#mottle)"/>'
+            '<rect width="1024" height="1024" filter="url(#grain)"/>')
 
 
 def page(label, content, small, fill=PAPER_LIGHT):
@@ -169,13 +188,12 @@ def write(path, text):
 
 
 if __name__ == "__main__":
-    for app in ("Viewer", "Bridge"):
+    for app in ("Viewer", "ViewerIOS"):
         assets = os.path.join(ROOT, app, "AppIcon.icon", "Assets")
-        write(os.path.join(assets, "rules.svg"), svg(rules()))
-        write(os.path.join(assets, "stroke.svg"), svg(s_mark()))
-        write(os.path.join(assets, "dot.svg"), svg(dot()))
-        if app == "Bridge":
-            write(os.path.join(assets, "badge.svg"), svg(badge()))
+        write(os.path.join(assets, "dot.svg"), svg(dot(grow=4)))
+    # Brush and paper layers: rendered to stroke.png and paper.png by render.sh.
+    write(os.path.join(BUILD, "icon-stroke.svg"), svg(brush_s()))
+    write(os.path.join(BUILD, "icon-paper.svg"), svg(washi_texture()))
     for small in (False, True):
         suffix = "-small" if small else ""
         write(os.path.join(BUILD, f"note{suffix}.svg"), doc_note(small))

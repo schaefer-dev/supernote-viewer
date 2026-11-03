@@ -113,7 +113,7 @@ final class ReaderUITests: XCTestCase {
         let app = Fixture.launch(opening: Fixture.note)
         XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30))
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.navigationBars["Supernote Viewer"].waitForExistence(timeout: 5), "Back returns to Home")
+        XCTAssertTrue(app.navigationBars["Sumi"].waitForExistence(timeout: 5), "Back returns to Home")
         XCTAssertTrue(app.staticTexts["Recently Opened"].exists)
         XCTAssertTrue(app.buttons["Browse Dropbox"].exists)
         XCTAssertTrue(app.buttons["Sync All"].exists)
@@ -125,7 +125,7 @@ final class ReaderUITests: XCTestCase {
         recent.tap()
         XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30), "A recent document opens with one tap")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.navigationBars["Supernote Viewer"].waitForExistence(timeout: 5), "Back from a recent returns to Home")
+        XCTAssertTrue(app.navigationBars["Sumi"].waitForExistence(timeout: 5), "Back from a recent returns to Home")
 
         app.buttons["Settings"].tap()
         XCTAssertTrue(app.switches["Sync All When App Opens"].waitForExistence(timeout: 5))
@@ -135,6 +135,19 @@ final class ReaderUITests: XCTestCase {
         app.buttons["Browse Dropbox"].tap()
         XCTAssertTrue(app.navigationBars["Browse Dropbox"].waitForExistence(timeout: 5))
         let dropbox = XCTAttachment(screenshot: app.screenshot()); dropbox.name = "Browse Dropbox"; dropbox.lifetime = .keepAlways; add(dropbox)
+    }
+    /// Without Dropbox, Home offers the bundled samples and Open from Files.
+    @MainActor func testSampleNotebookOpensWithoutDropbox() throws {
+        let app = XCUIApplication()
+        app.launch()
+        let samples = app.buttons["Try a Sample Notebook"]
+        guard samples.waitForExistence(timeout: 10) else { throw XCTSkip("Dropbox is connected on this simulator") }
+        XCTAssertTrue(app.buttons["Open from Files"].exists)
+        samples.tap()
+        app.buttons["Annotated PDF"].tap()
+        XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30), "The bundled annotated PDF opens with its original")
+        XCTAssertTrue(app.navigationBars.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Garmin")).firstMatch.exists
+                      || app.staticTexts["Document Title"].label.contains("Garmin"))
     }
     @MainActor func testAnnotatedPDFOpens() {
         let app = Fixture.launch(opening: Fixture.annotated)

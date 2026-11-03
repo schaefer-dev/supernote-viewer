@@ -285,7 +285,7 @@ struct SyncTimings: Equatable, Sendable {
 /// running when the user switches apps. If iOS declines, sync simply runs in the foreground.
 struct SystemContinuedProcessing: ContinuedProcessing {
     /// Must match the wildcard in `BGTaskSchedulerPermittedIdentifiers`.
-    static let identifierPrefix = "dev.schaefer.SupernoteViewerIOS.sync."
+    static let identifierPrefix = "dev.schaefer.Sumi.sync."
 
     func begin(title: String, subtitle: String, expiration: @escaping @MainActor () -> Void) -> (any ContinuedProcessingHandle)? {
         let handle = SystemContinuedProcessingHandle()

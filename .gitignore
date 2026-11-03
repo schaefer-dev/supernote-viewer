@@ -67,3 +67,8 @@ __pycache__/
 docs/
 CLAUDE.md
 AGENTS.md
+
+# Signing keys and provisioning profiles
+*.p8
+AuthKey_*
+*.mobileprovision

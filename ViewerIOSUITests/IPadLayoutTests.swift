@@ -22,7 +22,7 @@ final class IPadLayoutTests: XCTestCase {
         let app = Fixture.launch(opening: Fixture.titles)
         XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30))
         sleep(1)
-        let home = app.navigationBars["Supernote Viewer"]
+        let home = app.navigationBars["Sumi"]
         XCTAssertFalse(home.exists && home.isHittable, "Opening a document gives the page the whole screen")
         sleep(2)
         assertSingleLibraryControl(app)
@@ -55,7 +55,7 @@ final class IPadLayoutTests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: "Library").count, 1, "Only one library-reveal button is shown")
         XCTAssertFalse(app.buttons["Show Sidebar"].exists, "The automatic sidebar toggle must not duplicate Library")
         showLibrary.tap(); sleep(1)
-        XCTAssertTrue(app.navigationBars["Supernote Viewer"].waitForExistence(timeout: 5), "The library is shown again")
+        XCTAssertTrue(app.navigationBars["Sumi"].waitForExistence(timeout: 5), "The library is shown again")
         XCTAssertTrue(app.staticTexts["Recently Opened"].exists, "Home lists the document just opened")
         XCTAssertTrue(app.buttons["Sync All"].exists, "Sync All sits in the library toolbar")
         shot(app, "06b Library over reader")

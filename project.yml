@@ -12,7 +12,7 @@ settings:
     CODE_SIGN_IDENTITY: "-"
     ENABLE_HARDENED_RUNTIME: YES
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.4.0"
+    MARKETING_VERSION: "1.5.0"
     CURRENT_PROJECT_VERSION: "8"
 
 packages:
@@ -24,7 +24,8 @@ packages:
     exactVersion: 10.2.4
 
 targets:
-  # Opens .note/.mark/.pdf in its own windows (thumbnails, live reload, measuring).
+  # Opens .note/.mark/.pdf in its own windows (thumbnails, live reload, measuring), or hands
+  # .note/.mark to Preview.app as rendered PDFs (Settings → Open Supernote files in).
   SupernoteViewer:
     type: application
     platform: macOS
@@ -32,7 +33,7 @@ targets:
     info:
       path: Viewer/Info.plist
       properties:
-        CFBundleDisplayName: Supernote Viewer
+        CFBundleDisplayName: Sumi for Supernote
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.productivity
@@ -55,9 +56,9 @@ targets:
             LSItemContentTypes: [com.adobe.pdf]
         NSServices:
           - NSMenuItem:
-              default: Measure in Supernote Viewer
+              default: Measure in Sumi for Supernote
             NSMessage: measureFiles
-            NSPortName: Supernote Viewer
+            NSPortName: Sumi for Supernote
             NSRequiredContext: {}
             NSSendFileTypes:
               - dev.schaefer.supernote.note
@@ -79,7 +80,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.SupernoteViewer
-        PRODUCT_NAME: Supernote Viewer
+        PRODUCT_NAME: Sumi for Supernote
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon  # Viewer/AppIcon.icon (Icon Composer)
     dependencies:
       - package: SupernoteKit
@@ -87,44 +88,7 @@ targets:
       - target: QuickLookPreview
         embed: true
         codeSign: true
-
-  # Renders .note/.mark to PDF and hands it to Preview.app.
-  SupernotePreviewBridge:
-    type: application
-    platform: macOS
-    sources: [Shared, Bridge]
-    info:
-      path: Bridge/Info.plist
-      properties:
-        CFBundleDisplayName: Supernote Preview Bridge
-        CFBundleShortVersionString: $(MARKETING_VERSION)
-        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        LSApplicationCategoryType: public.app-category.productivity
-        NSPrincipalClass: NSApplication
-        # No Dock icon: opening a file hands it straight to Preview.
-        LSUIElement: true
-        CFBundleDocumentTypes:
-          - CFBundleTypeName: Supernote Notebook
-            CFBundleTypeIconFile: SupernoteNote
-            CFBundleTypeRole: Viewer
-            LSHandlerRank: Owner
-            LSItemContentTypes: [dev.schaefer.supernote.note]
-          - CFBundleTypeName: Supernote PDF Annotations
-            CFBundleTypeIconFile: SupernoteMark
-            CFBundleTypeRole: Viewer
-            LSHandlerRank: Owner
-            LSItemContentTypes: [dev.schaefer.supernote.mark]
-        # Supernote Viewer exports these types; importing keeps them defined without it.
-        UTImportedTypeDeclarations: *supernoteTypes
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.SupernotePreviewBridge
-        PRODUCT_NAME: Supernote Preview Bridge
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon  # Bridge/AppIcon.icon (Icon Composer)
-    dependencies:
-      - package: SupernoteKit
-        product: SupernoteKit
-    # Debug builds open a .note/.mark passed as launch argument, freshly rendered. Tick it in
+    # Debug builds open a .note/.mark passed as launch argument, freshly rendered, in Preview. Tick it in
     # Edit Scheme → Run → Arguments (or add your own path) to test renderer changes in Preview.
     scheme:
       commandLineArguments:
@@ -170,18 +134,22 @@ targets:
     sources:
       - path: ViewerIOS
         excludes: [Configuration]
+      # Bundled sample documents for trying the app without Dropbox.
+      - path: examples
+        type: folder
+        buildPhase: resources
     configFiles:
       Debug: ViewerIOS/Configuration/Base.xcconfig
       Release: ViewerIOS/Configuration/Base.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.SupernoteViewerIOS
+        PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.Sumi
         PRODUCT_NAME: SupernoteViewerIOS
         CURRENT_PROJECT_VERSION: "21"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: Apple Development
-        DEVELOPMENT_TEAM: ""
+        DEVELOPMENT_TEAM: VYPW8U86QN
         ENABLE_HARDENED_RUNTIME: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SUPPORTS_MACCATALYST: NO
@@ -189,7 +157,7 @@ targets:
     info:
       path: ViewerIOS/Info.plist
       properties:
-        CFBundleDisplayName: Supernote Viewer
+        CFBundleDisplayName: Sumi
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         DropboxAppKey: $(DROPBOX_APP_KEY)
@@ -208,7 +176,7 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        BGTaskSchedulerPermittedIdentifiers: ["dev.schaefer.SupernoteViewerIOS.sync.*"]
+        BGTaskSchedulerPermittedIdentifiers: ["dev.schaefer.Sumi.sync.*"]
         # Only HTTPS through Apple's networking stack: exempt from export documentation.
         ITSAppUsesNonExemptEncryption: false
     dependencies:
@@ -231,9 +199,10 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.Sumi.Tests
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: Apple Development
-        DEVELOPMENT_TEAM: ""
+        DEVELOPMENT_TEAM: VYPW8U86QN
     dependencies:
       - target: SupernoteViewerIOS
 
@@ -247,7 +216,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: Apple Development
-        DEVELOPMENT_TEAM: ""
+        PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.Sumi.UITests
+        DEVELOPMENT_TEAM: VYPW8U86QN
         TEST_TARGET_NAME: SupernoteViewerIOS
     dependencies:
       - target: SupernoteViewerIOS
