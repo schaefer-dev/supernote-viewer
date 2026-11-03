@@ -94,9 +94,9 @@ Want to try it before syncing your own notes? Use the files in [`examples/`](exa
 
 If Quick Look previews don't show up, check that **Supernote Quick Look** is turned on under System Settings → General → Login Items & Extensions → Quick Look.
 
-### Upgrading from Supernote Preview Bridge
+### Upgrading from version 1.4 or earlier
 
-Up to version 1.4, Preview support was a separate app, **Supernote Preview Bridge**. It's now part of Sumi. Move the old Bridge app to the Trash, then choose **Preview** in Sumi's Settings. If Finder still opens files with something else, select a `.note` file → **Get Info** → **Open with** → **Sumi for Supernote** → **Change All…**, and do the same for a `.mark` file.
+Up to version 1.4 the viewer was called **Supernote Viewer**, and Preview support was a separate app, **Supernote Preview Bridge**. Both are now **Sumi for Supernote**. After installing Sumi, move **Supernote Viewer** and **Supernote Preview Bridge** to the Trash; your settings carry over. If you used the Bridge, choose **Preview** in Sumi's Settings. If Finder still opens files with something else, select a `.note` file → **Get Info** → **Open with** → **Sumi for Supernote** → **Change All…**, and do the same for a `.mark` file.
 
 ### How Preview copies work
 
