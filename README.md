@@ -19,6 +19,8 @@ Your Supernote syncs `.note` notebooks and `.pdf.mark` annotations, but neither 
 
 On the Mac, Sumi comes with Quick Look, and a setting decides whether a double-click opens your files in Sumi or in Preview.
 
+> **Why not just use Supernote Partner?** Ratta's official app is a companion for managing files in Supernote Cloud. Sumi is built for *reading* your notes: it fits into Finder and Preview, makes all your handwriting searchable, works with Dropbox and needs no account. [See how they compare →](#sumi-vs-supernote-partner)
+
 ## Features
 
 ### On your Mac
@@ -59,6 +61,24 @@ For floor plans and sketches: choose **Calibrate** and drag along a length you k
   <img src="docs/images/ipad.jpg" alt="Sumi on iPad showing a handwritten notebook" width="400">
 </p>
 
+## Sumi vs. Supernote Partner
+
+[Supernote Partner](https://apps.apple.com/app/supernote-partner/id1494992020) is Ratta's official companion app for iPhone, iPad and Mac. It manages the files in your Supernote Cloud account. Sumi does one job, reading your notes, and puts its effort into doing it well.
+
+| | **Sumi** | **Supernote Partner** |
+|---|---|---|
+| **Account** | None. No sign-up, no login. | Supernote account required |
+| **Where your notes come from** | Dropbox (read-only), Finder, Files, Mail or any other app | Supernote Cloud |
+| **On the Mac** | A native Mac app. Quick Look in Finder, and double-clicking opens your files in Sumi or Apple's Preview. | No Quick Look or Finder integration, and it doesn't look or feel like a Mac app |
+| **Search your handwriting** | All of it, recognized on your device. ⌘F in Preview, search on iPhone and iPad. | Not for regular handwriting |
+| **Handwriting quality** | Vector ink drawn from the pen data, crisp at any zoom | — |
+| **Navigate long notebooks** | Titles you mark become a table of contents. Page titles, bookmarks and favorites. | — |
+| **While you write** | The open window updates as soon as your Supernote syncs | — |
+| **Floor plans and sketches** | Calibrate and measure to scale, then export the measurements as PDF annotations | — |
+| **Your files** | Never changed, uploaded or deleted. Open source (MIT). | Syncs and edits files in Supernote Cloud |
+
+**What Partner does that Sumi doesn't:** it renames, moves and deletes files in Supernote Cloud, sends files to your device, syncs to-dos and digests, and exports notes to text. Sumi only reads your files and never changes them, so you can use both apps side by side.
+
 ## Install on your Mac
 
 1. Download the **.dmg** from the [latest release](https://github.com/schaefer-dev/supernote-viewer/releases/latest).
@@ -70,13 +90,13 @@ For floor plans and sketches: choose **Calibrate** and drag along a length you k
 
    PDFs opened with Sumi and the **Measure in Sumi for Supernote** Quick Action always use Sumi's own window.
 
-### Upgrading from Supernote Preview Bridge
-
-Up to version 1.4, Preview support was a separate app, **Supernote Preview Bridge**. It's now part of Sumi. Move the old Bridge app to the Trash, then choose **Preview** in Sumi's Settings. If Finder still opens files with something else, select a `.note` file → **Get Info** → **Open with** → **Sumi for Supernote** → **Change All…**, and do the same for a `.mark` file.
+Want to try it before syncing your own notes? Use the files in [`examples/`](examples/).
 
 If Quick Look previews don't show up, check that **Supernote Quick Look** is turned on under System Settings → General → Login Items & Extensions → Quick Look.
 
-Want to try it before syncing your own notes? Use the files in [`examples/`](examples/).
+### Upgrading from Supernote Preview Bridge
+
+Up to version 1.4, Preview support was a separate app, **Supernote Preview Bridge**. It's now part of Sumi. Move the old Bridge app to the Trash, then choose **Preview** in Sumi's Settings. If Finder still opens files with something else, select a `.note` file → **Get Info** → **Open with** → **Sumi for Supernote** → **Change All…**, and do the same for a `.mark` file.
 
 ### How Preview copies work
 
@@ -147,4 +167,4 @@ Format notes come from [supernotelib](https://github.com/jya-dev/supernote-tool)
 
 ## License
 
-[MIT](LICENSE). Not affiliated with Ratta or Supernote.
+[MIT](LICENSE). Not affiliated with Ratta or Supernote. Supernote and Supernote Partner are products of Ratta.
