@@ -54,7 +54,7 @@ For floor plans and sketches: choose **Calibrate** and drag along a length you k
 - **Opens shared files too.** Open a `.note` or `.pdf.mark` from Files, Mail or any other app, and export any document as a PDF.
 
 <p align="center">
-  <img src="docs/images/iphone.jpg" alt="Sumi on iPhone showing a handwritten notebook with titles" width="230">
+  <img src="docs/images/iphone.jpg" alt="Sumi on iPhone showing a handwritten notebook, zoomed in" width="230">
   &nbsp;&nbsp;
   <img src="docs/images/ipad.jpg" alt="Sumi on iPad showing a handwritten notebook" width="400">
 </p>
