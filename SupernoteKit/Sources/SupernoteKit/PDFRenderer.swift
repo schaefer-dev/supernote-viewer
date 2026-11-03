@@ -16,9 +16,22 @@ public struct RenderOptions {
     /// Drawing follows recognition.
     public var pageProgress: ((_ done: Int, _ total: Int) -> Void)?
 
+    /// Upper bound for page preparation and recognition work. Values below one use one worker.
+    public var maximumConcurrentPageWork: Int
+    /// Cooperative cancellation; called from multiple threads. Keep this callback thread safe.
+    public var isCancelled: () -> Bool
+    /// Failed page recognition, called from a worker thread. Failed pages are not cached.
+    public var recognitionError: ((Int, Error) -> Void)?
+
     public init(vector: Bool = true, textLayer: Bool = false, ocrCacheDirectory: URL? = nil,
                 progress: ((_ done: Int, _ total: Int) -> Void)? = nil,
-                pageProgress: ((_ done: Int, _ total: Int) -> Void)? = nil) {
+                pageProgress: ((_ done: Int, _ total: Int) -> Void)? = nil,
+                maximumConcurrentPageWork: Int = 4,
+                isCancelled: @escaping () -> Bool = { false },
+                recognitionError: ((Int, Error) -> Void)? = nil) {
+        self.maximumConcurrentPageWork = max(1, maximumConcurrentPageWork)
+        self.isCancelled = isCancelled
+        self.recognitionError = recognitionError
         self.vector = vector
         self.textLayer = textLayer
         self.ocrCacheDirectory = ocrCacheDirectory
@@ -30,7 +43,7 @@ public struct RenderOptions {
 /// Renders Supernote files to PDF data.
 public enum PDFRenderer {
     /// Bumped when output changes, so cached renders are redone.
-    public static let version = 6
+    public static let version = 7
 
     /// Renders a `.note` or `.mark` file. For `.mark`, the companion PDF next to it is used when readable.
     public static func render(contentsOf url: URL, options: RenderOptions = RenderOptions()) throws -> Data {
@@ -39,108 +52,160 @@ public enum PDFRenderer {
         case .note:
             return try renderNote(file, options: options)
         case .mark:
-            let pdfURL = SNFile.companionPDFURL(forMark: url)
-            return try renderMark(file, companion: openPDF(pdfURL), companionName: pdfURL.lastPathComponent,
+            let companion = SNFile.companionPDFURL(forMark: url)
+            return try renderMark(file, companion: openPDF(companion), companionName: companion.lastPathComponent,
                                   options: options)
         }
     }
 
-    public static func renderNote(_ file: SNFile, options: RenderOptions = RenderOptions()) throws -> Data {
-        let words = recognizeIfNeeded(file, options)
-        return try makePDF { ctx in
-            var outlinePages: [Int: OutlinePage] = [:]
+    /// In this overload nil deliberately means no companion, without sibling discovery.
+    public static func render(contentsOf url: URL, companionPDFURL: URL?,
+                              options: RenderOptions = RenderOptions()) throws -> Data {
+        let file = try SNFile(url: url)
+        return try makePDF { try draw(file, companionPDFURL: companionPDFURL, in: $0, options: options) }
+    }
 
-            pipelined(
-                file.pages.count,
-                prepare: { prepareInk(of: file.pages[$0], in: file, options: options) })
-            { index, ink in
-                let page = file.pages[index]
-                let rect = CGRect(origin: .zero, size: pointSize(page.width, page.height))
-                beginPage(ctx, rect)
-                ctx.setFillColor(gray: 1, alpha: 1)
-                ctx.fill(rect)
-                drawInk(ink, of: page, in: file, ctx: ctx, rect: rect)
-                let pageWords = textWords(of: page, in: file, recognized: words[page.number])
-                TextLayer.draw(pageWords, in: ctx, rect: rect)
-                ctx.endPDFPage()
-                outlinePages[page.number] = OutlinePage(index: index + 1, width: page.width, height: page.height,
-                                                        words: pageWords)
-                options.pageProgress?(index + 1, file.pages.count)
-            }
-            if options.textLayer { setOutline(outline(titles: file.titles, pages: outlinePages), in: ctx) }
+    /// Writes directly to a file; incomplete output is removed on any failure.
+    public static func write(contentsOf url: URL, companionPDFURL: URL?, to output: URL,
+                             options: RenderOptions = RenderOptions()) throws {
+        let file = try SNFile(url: url)
+        guard let consumer = CGDataConsumer(url: output as CFURL),
+              let ctx = CGContext(consumer: consumer, mediaBox: nil, nil) else {
+            throw SNError.malformed("could not create output PDF; check available storage")
+        }
+        do {
+            defer { ctx.closePDF() }
+            try draw(file, companionPDFURL: companionPDFURL, in: ctx, options: options)
+            try checkCancellation(options)
+        } catch {
+            try? FileManager.default.removeItem(at: output)
+            throw error
         }
     }
 
-    /// Draws each page of `companion` with the matching mark page's ink on top.
-    /// Mark page n annotates PDF page n; the device shows the PDF page fitted and centered in its
-    /// screen, so output pages have the device's aspect ratio to keep notes written in the margins.
+    private static func draw(_ file: SNFile, companionPDFURL: URL?, in ctx: CGContext,
+                             options: RenderOptions) throws {
+        try checkCancellation(options)
+        if file.fileType == .note { try drawNote(file, in: ctx, options: options) }
+        else {
+            let companion = companionPDFURL.flatMap(openPDF)
+            if companionPDFURL != nil && companion == nil {
+                throw SNError.malformed("Original PDF is unreadable or password locked. Import an unlocked PDF.")
+            }
+            try drawMark(file, companion: companion,
+                         companionName: companionPDFURL?.lastPathComponent ?? "original PDF", in: ctx, options: options)
+        }
+        try checkCancellation(options)
+    }
+
+    public static func renderNote(_ file: SNFile, options: RenderOptions = RenderOptions()) throws -> Data {
+        try makePDF { try drawNote(file, in: $0, options: options) }
+    }
+
+    private static func drawNote(_ file: SNFile, in ctx: CGContext, options: RenderOptions) throws {
+        try checkCancellation(options)
+        let words = recognizeIfNeeded(file, options)
+        var outlinePages: [Int: OutlinePage] = [:]
+
+        try pipelined(
+            file.pages.count, workers: options.maximumConcurrentPageWork, isCancelled: options.isCancelled,
+            prepare: { prepareInk(of: file.pages[$0], in: file, options: options) })
+        { index, ink in
+            try checkCancellation(options)
+            let page = file.pages[index]
+            let rect = CGRect(origin: .zero, size: pointSize(page.width, page.height))
+            beginPage(ctx, rect)
+            ctx.setFillColor(gray: 1, alpha: 1)
+            ctx.fill(rect)
+            drawInk(ink, of: page, in: file, ctx: ctx, rect: rect)
+            let pageWords = textWords(of: page, in: file, recognized: words[page.number])
+            TextLayer.draw(pageWords, in: ctx, rect: rect)
+            ctx.endPDFPage()
+            outlinePages[page.number] = OutlinePage(index: index + 1, width: page.width, height: page.height,
+                                                    words: pageWords)
+            options.pageProgress?(index + 1, file.pages.count)
+        }
+        try checkCancellation(options)
+        if options.textLayer { setOutline(outline(titles: file.titles, pages: outlinePages), in: ctx) }
+    }
+
     public static func renderMark(_ file: SNFile, companion: CGPDFDocument?, companionName: String,
                                   options: RenderOptions = RenderOptions()) throws -> Data {
+        try makePDF { try drawMark(file, companion: companion, companionName: companionName, in: $0, options: options) }
+    }
+
+    private static func drawMark(_ file: SNFile, companion: CGPDFDocument?, companionName: String,
+                                 in ctx: CGContext, options: RenderOptions) throws {
         let marksByNumber = Dictionary(file.pages.map { ($0.number, $0) }, uniquingKeysWith: { a, _ in a })
         let highlights = MarkHighlight.load(from: file)
+        try checkCancellation(options)
         let words = recognizeIfNeeded(file, options)
         let pdfCount = companion?.numberOfPages ?? 0
         let pageCount = max(pdfCount, file.pages.map(\.number).max() ?? 0)
 
-        return try makePDF { ctx in
-            var outlinePages: [Int: OutlinePage] = [:]
-            let outputCount = max(pageCount, 1)
-            pipelined(
-                outputCount,
-                prepare: { index in marksByNumber[index + 1].map { prepareInk(of: $0, in: file, options: options) }
-            }) { index, ink in
-                let number = index + 1
-                let mark = marksByNumber[number]
-                let deviceW = mark?.width ?? file.deviceWidth
-                let deviceH = mark?.height ?? file.deviceHeight
-                let pdfPage = number <= pdfCount ? companion?.page(at: number) : nil
+        var outlinePages: [Int: OutlinePage] = [:]
+        let outputCount = max(pageCount, 1)
+        try pipelined(
+            outputCount, workers: options.maximumConcurrentPageWork, isCancelled: options.isCancelled,
+            prepare: { index in marksByNumber[index + 1].map { prepareInk(of: $0, in: file, options: options) }
+        }) { index, ink in
+            try checkCancellation(options)
+            let number = index + 1
+            let mark = marksByNumber[number]
+            let deviceW = mark?.width ?? file.deviceWidth
+            let deviceH = mark?.height ?? file.deviceHeight
+            let pdfPage = number <= pdfCount ? companion?.page(at: number) : nil
 
-                // Output page: the PDF page expanded to the device aspect ratio (or the device size).
-                let box: CGRect
-                var pageRect = CGRect.zero
-                if let pdfPage {
-                    let size = displayedSize(pdfPage)
-                    let aspect = Double(deviceW) / Double(deviceH)
-                    if size.width / size.height > aspect {
-                        box = CGRect(x: 0, y: 0, width: size.width, height: size.width / aspect)
-                    } else {
-                        box = CGRect(x: 0, y: 0, width: size.height * aspect, height: size.height)
-                    }
-                    pageRect = CGRect(x: (box.width - size.width) / 2, y: (box.height - size.height) / 2,
-                                      width: size.width, height: size.height)
+            // Output page: the PDF page expanded to the device aspect ratio (or the device size).
+            let box: CGRect
+            var pageRect = CGRect.zero
+            if let pdfPage {
+                let size = displayedSize(pdfPage)
+                let aspect = Double(deviceW) / Double(deviceH)
+                if size.width / size.height > aspect {
+                    box = CGRect(x: 0, y: 0, width: size.width, height: size.width / aspect)
                 } else {
-                    box = CGRect(origin: .zero, size: pointSize(deviceW, deviceH))
+                    box = CGRect(x: 0, y: 0, width: size.height * aspect, height: size.height)
                 }
-
-                beginPage(ctx, box)
-                ctx.setFillColor(gray: 1, alpha: 1)
-                ctx.fill(box)
-
-                if let pdfPage {
-                    ctx.saveGState()
-                    ctx.clip(to: pageRect)
-                    ctx.concatenate(pdfPage.getDrawingTransform(.cropBox, rect: pageRect, rotate: 0, preserveAspectRatio: true))
-                    ctx.drawPDFPage(pdfPage)
-                    ctx.restoreGState()
-                    for h in highlights[number - 1] ?? [] { h.draw(in: ctx, pageRect: pageRect) }
-                }
-
-                if let mark, let ink {
-                    drawInk(ink, of: mark, in: file, ctx: ctx, rect: box)
-                    let markWords = textWords(of: mark, in: file, recognized: words[mark.number])
-                    TextLayer.draw(markWords, in: ctx, rect: box)
-                    outlinePages[number] = OutlinePage(index: number, width: mark.width, height: mark.height,
-                                                       words: markWords)
-                }
-
-                if companion == nil && number == 1 {
-                    drawNotice("Original PDF not found or not readable: \(companionName)", in: ctx, box: box)
-                }
-                ctx.endPDFPage()
-                options.pageProgress?(number, outputCount)
+                pageRect = CGRect(x: (box.width - size.width) / 2, y: (box.height - size.height) / 2,
+                                  width: size.width, height: size.height)
+            } else {
+                box = CGRect(origin: .zero, size: pointSize(deviceW, deviceH))
             }
-            if options.textLayer { setOutline(outline(titles: file.titles, pages: outlinePages), in: ctx) }
+
+            beginPage(ctx, box)
+            ctx.setFillColor(gray: 1, alpha: 1)
+            ctx.fill(box)
+
+            if let pdfPage {
+                ctx.saveGState()
+                ctx.clip(to: pageRect)
+                ctx.concatenate(pdfPage.getDrawingTransform(.cropBox, rect: pageRect, rotate: 0, preserveAspectRatio: true))
+                ctx.drawPDFPage(pdfPage)
+                ctx.restoreGState()
+                for h in highlights[number - 1] ?? [] { h.draw(in: ctx, pageRect: pageRect) }
+            }
+
+            if let mark, let ink {
+                drawInk(ink, of: mark, in: file, ctx: ctx, rect: box)
+                let markWords = textWords(of: mark, in: file, recognized: words[mark.number])
+                TextLayer.draw(markWords, in: ctx, rect: box)
+                outlinePages[number] = OutlinePage(index: number, width: mark.width, height: mark.height,
+                                                   words: markWords)
+            }
+
+            if companion == nil && number == 1 {
+                drawNotice("Original PDF not found or not readable: \(companionName)", in: ctx, box: box)
+            }
+            ctx.endPDFPage()
+            options.pageProgress?(number, outputCount)
         }
+        try checkCancellation(options)
+        if options.textLayer { setOutline(outline(titles: file.titles, pages: outlinePages), in: ctx) }
+    }
+
+    private static func checkCancellation(_ options: RenderOptions) throws {
+        if options.isCancelled() { throw CancellationError() }
     }
 
     /// One visible layer of a page, ready to draw.
@@ -235,24 +300,36 @@ public enum PDFRenderer {
     /// 4 workers don't render faster, since drawing into the PDF on the calling thread is the
     /// bottleneck, but each one adds a page of bitmaps.
     static func pipelined<T>(_ count: Int, workers prepareWorkerCount: Int = 4,
+                             isCancelled: @escaping () -> Bool = { false },
                              prepare: @escaping (Int) -> T, _ body: (Int, T) throws -> Void) rethrows {
-        var results = [T?](repeating: nil, count: count)
+        let workerCount = max(1, prepareWorkerCount)
+        let group = DispatchGroup()
         let lock = NSLock()
+        var stopped = false
+        defer {
+            lock.withLock { stopped = true }
+            group.wait()
+        }
+        var results = [T?](repeating: nil, count: count)
         let ready = (0..<count).map { _ in DispatchSemaphore(value: 0) }
         func enqueuePrepare(_ index: Int) {
-            guard index < count else { return }
+            guard index < count, !isCancelled(), !lock.withLock({ stopped }) else { return }
+            group.enter()
             DispatchQueue.global().async {
-                let value = prepare(index)
+                defer { group.leave(); ready[index].signal() }
+                guard !isCancelled(), !lock.withLock({ stopped }) else { return }
+                let value = autoreleasepool { prepare(index) }
                 lock.withLock { results[index] = value }
-                ready[index].signal()
             }
         }
-        for index in 0..<min(prepareWorkerCount, count) { enqueuePrepare(index) }
+        for index in 0..<min(workerCount, count) { enqueuePrepare(index) }
         for index in 0..<count {
+            if isCancelled() { break }
             ready[index].wait()
+            if isCancelled() { break }
             let value = lock.withLock { results[index].take()! }
-            enqueuePrepare(index + prepareWorkerCount)
             try body(index, value)
+            enqueuePrepare(index + workerCount)
         }
     }
 
@@ -333,7 +410,9 @@ public enum PDFRenderer {
 
     private static func recognizeIfNeeded(_ file: SNFile, _ options: RenderOptions) -> [Int: [RecognizedWord]] {
         guard options.textLayer else { return [:] }
-        return TextLayer.recognize(file: file, cacheDirectory: options.ocrCacheDirectory, progress: options.progress)
+        return TextLayer.recognize(file: file, cacheDirectory: options.ocrCacheDirectory, progress: options.progress,
+                                   maximumConcurrentPageWork: options.maximumConcurrentPageWork,
+                                   isCancelled: options.isCancelled, recognitionError: options.recognitionError)
     }
 
     public static func openPDF(_ url: URL) -> CGPDFDocument? {
@@ -361,7 +440,8 @@ public enum PDFRenderer {
               let ctx = CGContext(consumer: consumer, mediaBox: nil, nil) else {
             throw SNError.malformed("could not create PDF context")
         }
-        try body(ctx)
+        do { try body(ctx) }
+        catch { ctx.closePDF(); throw error }
         ctx.closePDF()
         return data as Data
     }

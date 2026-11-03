@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "SupernoteKit",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v13), .iOS("26.0")],
     products: [
         .library(name: "SupernoteKit", targets: ["SupernoteKit"]),
         .executable(name: "snrender", targets: ["snrender"]),

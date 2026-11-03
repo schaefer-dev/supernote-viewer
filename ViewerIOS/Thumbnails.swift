@@ -1,0 +1,67 @@
+import Observation
+import PDFKit
+import UIKit
+
+/// Page thumbnails of saved renderings, generated off the main actor on demand. Lists show the
+/// first page; page favorites can show their bookmarked page. A page that no longer exists falls
+/// back to the first page. Documents that were never opened or synced have no thumbnail and show
+/// their kind's symbol.
+@Observable @MainActor final class ThumbnailStore {
+    private var images: [String: UIImage] = [:]
+    @ObservationIgnored private var requested: Set<String> = []
+    @ObservationIgnored private let cache: RenderedPDFCache
+    static let size = CGSize(width: 96, height: 128)
+
+    init(cache: RenderedPDFCache) { self.cache = cache }
+
+    func thumbnail(account: String?, fileID: String, page index: Int = 0) -> UIImage? {
+        guard let account else { return nil }
+        let key = Self.key(account, fileID, index)
+        if let image = images[key] { return image }
+        if requested.insert(key).inserted {
+            let cache = self.cache
+            Task {
+                let image = await Task.detached(priority: .utility) { () -> UIImage? in
+                    guard let latest = cache.latestRendering(accountID: account, fileID: fileID),
+                          let document = PDFDocument(url: latest.url),
+                          let page = document.page(at: index) ?? document.page(at: 0) else { return nil }
+                    return page.thumbnail(of: Self.size, for: .mediaBox)
+                }.value
+                if let image { images[key] = image }
+            }
+        }
+        return nil
+    }
+
+    /// Forgets every page thumbnail of a file after a newer rendering is saved.
+    func invalidate(account: String, fileID: String) {
+        let prefix = Self.filePrefix(account, fileID)
+        requested = requested.filter { !$0.hasPrefix(prefix) }
+        for key in images.keys where key.hasPrefix(prefix) { images[key] = nil }
+    }
+    func removeAll() { requested.removeAll(); images.removeAll() }
+
+    private nonisolated static func filePrefix(_ account: String, _ fileID: String) -> String { account + "\u{1F}" + fileID + "\u{1F}" }
+    private nonisolated static func key(_ account: String, _ fileID: String, _ page: Int) -> String { filePrefix(account, fileID) + String(page) }
+}
+
+/// Page thumbnails for the reader's page grid. Pages render off the main actor from a private copy
+/// of the displayed PDF, so scrolling the grid never touches the document the reader is showing.
+/// Each grid cell asks for its own page, so no view has to observe a shared image store.
+actor PageThumbnailRenderer {
+    static let shared = PageThumbnailRenderer()
+    /// Large enough to read handwriting in a two-column grid on iPhone.
+    static let size = CGSize(width: 420, height: 560)
+    private var url: URL?
+    private var document: PDFDocument?
+    private let images: NSCache<NSNumber, UIImage> = { let cache = NSCache<NSNumber, UIImage>(); cache.countLimit = 60; return cache }()
+
+    /// Starts over when the reader shows a different file, such as the recognized version of a preview.
+    func image(_ index: Int, in url: URL) -> UIImage? {
+        if url != self.url { self.url = url; document = PDFDocument(url: url); images.removeAllObjects() }
+        if let image = images.object(forKey: index as NSNumber) { return image }
+        guard let image = document?.page(at: index)?.thumbnail(of: Self.size, for: .mediaBox) else { return nil }
+        images.setObject(image, forKey: index as NSNumber)
+        return image
+    }
+}

@@ -19,6 +19,10 @@ packages:
   SupernoteKit:
     path: SupernoteKit
 
+  SwiftyDropbox:
+    url: https://github.com/dropbox/SwiftyDropbox.git
+    exactVersion: 10.2.4
+
 targets:
   # Opens .note/.mark/.pdf in its own windows (thumbnails, live reload, measuring).
   SupernoteViewer:
@@ -158,3 +162,92 @@ targets:
     dependencies:
       - package: SupernoteKit
         product: SupernoteKit
+
+  SupernoteViewerIOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: ViewerIOS
+        excludes: [Configuration]
+    configFiles:
+      Debug: ViewerIOS/Configuration/Base.xcconfig
+      Release: ViewerIOS/Configuration/Base.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.SupernoteViewerIOS
+        PRODUCT_NAME: SupernoteViewerIOS
+        CURRENT_PROJECT_VERSION: "21"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: Apple Development
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    info:
+      path: ViewerIOS/Info.plist
+      properties:
+        CFBundleDisplayName: Supernote Viewer
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        DropboxAppKey: $(DROPBOX_APP_KEY)
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: ["db-$(DROPBOX_APP_KEY)"]
+        LSApplicationQueriesSchemes: [dbapi-8-emm, dbapi-2]
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        "UISupportedInterfaceOrientations~ipad": [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Supernote and PDF Documents
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [dev.schaefer.supernote.note, dev.schaefer.supernote.mark, com.adobe.pdf]
+        UTExportedTypeDeclarations: *supernoteTypes
+        LSSupportsOpeningDocumentsInPlace: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        BGTaskSchedulerPermittedIdentifiers: ["dev.schaefer.SupernoteViewerIOS.sync.*"]
+        # Only HTTPS through Apple's networking stack: exempt from export documentation.
+        ITSAppUsesNonExemptEncryption: false
+    dependencies:
+      - package: SupernoteKit
+        product: SupernoteKit
+      - package: SwiftyDropbox
+        product: SwiftyDropbox
+    scheme:
+      testTargets: [SupernoteViewerIOSTests, SupernoteViewerIOSUITests]
+
+  SupernoteViewerIOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: ViewerIOSTests
+      - path: SupernoteKit/Tests/Fixtures/supernote-typescript
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: Apple Development
+        DEVELOPMENT_TEAM: ""
+    dependencies:
+      - target: SupernoteViewerIOS
+
+  SupernoteViewerIOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources: [ViewerIOSUITests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: Apple Development
+        DEVELOPMENT_TEAM: ""
+        TEST_TARGET_NAME: SupernoteViewerIOS
+    dependencies:
+      - target: SupernoteViewerIOS
