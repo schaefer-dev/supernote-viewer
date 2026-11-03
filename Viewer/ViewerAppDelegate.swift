@@ -1,15 +1,19 @@
 import AppKit
 import PDFKit
+import SwiftUI
 import SupernoteKit
 import UniformTypeIdentifiers
 
 /// Sumi for Supernote: opens .note, .mark and PDF files in its own windows (thumbnails, live reload,
-/// measuring). Also provides the "Measure in Sumi for Supernote" Finder service.
+/// measuring), or, with the Preview setting, renders .note/.mark files to PDF and hands them to Preview.
+/// Also provides the "Measure in Sumi for Supernote" Finder service.
 @main
 final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
     private var receivedFiles = false
     private var pendingJobs = 0
     private var windows: [ViewerWindowController] = []
+    private var settingsWindow: NSWindow?
+    private var openPanel: NSOpenPanel?
 
     static func main() {
         let app = NSApplication.shared
@@ -26,6 +30,16 @@ final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         RenderCache.cleanCache()
+        #if DEBUG
+        // Development: running from Xcode with a .note/.mark path as launch argument (see the scheme
+        // in project.yml) opens it freshly rendered in Preview, so renderer changes show without installing.
+        let files = ProcessInfo.processInfo.arguments.dropFirst().map { URL(fileURLWithPath: $0) }
+            .filter { Self.isSupernoteFile($0) && FileManager.default.fileExists(atPath: $0.path) }
+        if !files.isEmpty {
+            receivedFiles = true
+            openInPreview(files, forceRender: true)
+        }
+        #endif
         // Files arrive via application(_:open:) right after launch; without any, offer to open one.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self] in
             if !receivedFiles { openDocument(nil) }
@@ -34,7 +48,20 @@ final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ sender: NSApplication, open urls: [URL]) {
         receivedFiles = true
-        openWindows(for: urls, measuring: false)
+        // Double-clicked .note/.mark files follow the "Open Supernote files in" setting; PDFs (Open With)
+        // always open here.
+        if OpenMode.current == .preview {
+            let supernote = urls.filter(Self.isSupernoteFile)
+            let others = urls.filter { !Self.isSupernoteFile($0) }
+            if !supernote.isEmpty { openInPreview(supernote, forceRender: false) }
+            if !others.isEmpty { openWindows(for: others, measuring: false) }
+        } else {
+            openWindows(for: urls, measuring: false)
+        }
+    }
+
+    private static func isSupernoteFile(_ url: URL) -> Bool {
+        ["note", "mark"].contains(url.pathExtension.lowercased())
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -51,15 +78,25 @@ final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func openDocument(_ sender: Any?) {
+        if let openPanel {
+            openPanel.makeKeyAndOrderFront(nil)
+            return
+        }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [UTType("dev.schaefer.supernote.note"), UTType("dev.schaefer.supernote.mark"), .pdf]
             .compactMap { $0 }
         NSApp.activate(ignoringOtherApps: true)
-        if panel.runModal() == .OK {
-            openWindows(for: panel.urls, measuring: false)
-        } else {
-            quitIfIdle()
+        // Not modal, so the menu (e.g. Settings…) stays usable while the panel is open.
+        openPanel = panel
+        panel.begin { [weak self] response in
+            guard let self else { return }
+            openPanel = nil
+            if response == .OK {
+                openWindows(for: panel.urls, measuring: false)
+            } else {
+                quitIfIdle()
+            }
         }
     }
 
@@ -75,7 +112,7 @@ final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
                     continue
                 }
                 do {
-                    // Supernote files are shown as the same rendered PDF the Preview Bridge uses.
+                    // Supernote files are shown as the same rendered PDF that Preview mode hands to Preview.
                     let pdfURL = url.pathExtension.lowercased() == "pdf" ? url : try await RenderCache.preparePDF(for: url)
                     let controller = try ViewerWindowController(source: url, pdfURL: pdfURL, measuring: measuring)
                     controller.onClose = { [weak self, weak controller] in
@@ -96,8 +133,67 @@ final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Preview
+
+    /// Renders .note/.mark files to PDFs and opens them in Preview.app.
+    private func openInPreview(_ urls: [URL], forceRender: Bool) {
+        pendingJobs += 1
+        Task { @MainActor in
+            var pdfs: [URL] = []
+            for url in urls {
+                do {
+                    pdfs.append(try await RenderCache.preparePDF(for: url, forceRender: forceRender))
+                } catch {
+                    RenderCache.showError(error, for: url)
+                }
+            }
+            if !pdfs.isEmpty { await Self.handToPreview(pdfs) }
+            pendingJobs -= 1
+            quitIfIdle()
+        }
+    }
+
+    private static func handToPreview(_ pdfs: [URL]) async {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        guard let preview = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") else {
+            pdfs.forEach { NSWorkspace.shared.open($0) }
+            return
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            NSWorkspace.shared.open(pdfs, withApplicationAt: preview, configuration: configuration) { _, error in
+                if let error {
+                    Task { @MainActor in RenderCache.showError(error, for: pdfs[0]) }
+                }
+                continuation.resume()
+            }
+        }
+    }
+
+    // MARK: - Settings
+
+    @objc func showSettings(_ sender: Any?) {
+        if settingsWindow == nil {
+            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
+            window.title = "Settings"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window,
+                                                   queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.settingsWindow = nil
+                    DispatchQueue.main.async { self?.quitIfIdle() }
+                }
+            }
+            settingsWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
     private func quitIfIdle() {
-        if pendingJobs == 0 && windows.isEmpty {
+        if pendingJobs == 0 && windows.isEmpty && settingsWindow == nil && openPanel == nil {
             NSApp.terminate(nil)
         }
     }
@@ -119,6 +215,8 @@ final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
         }
         let main = NSMenu()
         main.addItem(submenu("Sumi for Supernote", [
+            item("Settings…", #selector(ViewerAppDelegate.showSettings(_:)), ","),
+            .separator(),
             item("Hide Sumi for Supernote", #selector(NSApplication.hide(_:)), "h"),
             .separator(),
             item("Quit Sumi for Supernote", #selector(NSApplication.terminate(_:)), "q"),

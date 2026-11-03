@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Regenerates the icon artwork from artwork.py: the layers in Viewer, Bridge and ViewerIOS AppIcon.icon
+# Regenerates the icon artwork from artwork.py: the layers in Viewer and ViewerIOS AppIcon.icon
 # (stroke.png and paper.png rendered here), and Shared/SupernoteNote.icns / SupernoteMark.icns (document icons),
 # rendered with headless Chrome.
 set -euo pipefail
@@ -11,7 +11,7 @@ python3 -I artwork.py
 for layer in stroke paper; do
   "$CHROME" --headless=new --disable-gpu --hide-scrollbars --default-background-color=00000000 \
     --window-size=1024,1024 --screenshot="$PWD/build/icon-$layer.png" "file://$PWD/build/icon-$layer.svg" 2>/dev/null
-  for app in Viewer Bridge ViewerIOS; do
+  for app in Viewer ViewerIOS; do
     cp build/icon-$layer.png ../$app/AppIcon.icon/Assets/$layer.png
   done
 done

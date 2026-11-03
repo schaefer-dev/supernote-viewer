@@ -14,11 +14,10 @@ Your Supernote syncs `.note` notebooks and `.pdf.mark` annotations, but neither 
 
 | | App | What it does |
 |---|---|---|
-| **Mac** | **Sumi for Supernote** | Opens notes in its own window, with thumbnails, live reload and a measuring tool. |
-| **Mac** | **Supernote Preview Bridge** | Turns notes into PDFs and opens them in Apple's **Preview**, so you keep the tools you already know. |
+| **Mac** | **Sumi for Supernote** | Opens notes in its own window, with thumbnails, live reload and a measuring tool, or turns them into PDFs and opens them in Apple's **Preview**, so you keep the tools you already know. |
 | **iPhone & iPad** | **Sumi** | Reads the notebooks and annotated PDFs your Supernote syncs to Dropbox, with search, page titles, bookmarks and favorites. |
 
-On the Mac, both apps come with Quick Look, and you pick which one opens your files on double-click.
+On the Mac, Sumi comes with Quick Look, and a setting decides whether a double-click opens your files in Sumi or in Preview.
 
 ## Features
 
@@ -26,7 +25,7 @@ On the Mac, both apps come with Quick Look, and you pick which one opens your fi
 
 #### Opens in Preview, with searchable handwriting
 
-Double-click a notebook and it opens in Apple's Preview. Handwriting is drawn as vector strokes from the notebook's own pen data, so it stays crisp at any zoom. Apple's on-device text recognition adds an invisible text layer (English and German), so you can search with ⌘F and select and copy your handwriting. Typed text boxes and marker highlights come through as well. Titles you mark on the Supernote become the PDF's table of contents (View → Table of Contents), so you can jump between sections.
+With **Open Supernote files in: Preview** (Settings, ⌘,), double-click a notebook and it opens in Apple's Preview. Handwriting is drawn as vector strokes from the notebook's own pen data, so it stays crisp at any zoom. Apple's on-device text recognition adds an invisible text layer (English and German), so you can search with ⌘F and select and copy your handwriting. Typed text boxes and marker highlights come through as well. Titles you mark on the Supernote become the PDF's table of contents (View → Table of Contents), so you can jump between sections.
 
 <p align="center"><img src="docs/images/preview.jpg" alt="A Supernote notebook opened in Preview" width="520"></p>
 
@@ -63,15 +62,17 @@ For floor plans and sketches: choose **Calibrate** and drag along a length you k
 ## Install on your Mac
 
 1. Download the **.dmg** from the [latest release](https://github.com/schaefer-dev/supernote-viewer/releases/latest).
-2. Open it and drag both apps to **Applications**. The apps are signed, so they should open without any security warnings.
+2. Open it and drag **Sumi for Supernote** to **Applications**. The app is signed, so it should open without any security warnings.
 3. Open **Sumi for Supernote** once. This turns on the Quick Look extension.
-4. Choose which app opens your files. In Finder, select a `.note` file → **Get Info** → **Open with** → pick an app → **Change All…**. Do the same for a `.mark` file.
+4. Choose where double-clicked files open: **Sumi for Supernote → Settings… (⌘,) → Open Supernote files in**.
    - **Sumi for Supernote** if you want thumbnails, live reload or measuring.
-   - **Supernote Preview Bridge** if you'd rather annotate, sign or print in Preview.
+   - **Preview** if you'd rather annotate, sign or print in Preview.
 
-   To try one without changing the default, right-click a file → **Open With**.
+   PDFs opened with Sumi and the **Measure in Sumi for Supernote** Quick Action always use Sumi's own window.
 
-<p align="center"><img src="docs/images/open-with.jpg" alt="Finder's Open With menu listing Supernote Preview Bridge and Sumi for Supernote" width="520"></p>
+### Upgrading from Supernote Preview Bridge
+
+Up to version 1.4, Preview support was a separate app, **Supernote Preview Bridge**. It's now part of Sumi. Move the old Bridge app to the Trash, then choose **Preview** in Sumi's Settings. If Finder still opens files with something else, select a `.note` file → **Get Info** → **Open with** → **Sumi for Supernote** → **Change All…**, and do the same for a `.mark` file.
 
 If Quick Look previews don't show up, check that **Supernote Quick Look** is turned on under System Settings → General → Login Items & Extensions → Quick Look.
 
@@ -79,7 +80,7 @@ Want to try it before syncing your own notes? Use the files in [`examples/`](exa
 
 ### How Preview copies work
 
-Preview Bridge opens a generated PDF from `~/Library/Caches/dev.schaefer.SupernoteViewer/`. It's regenerated when the notebook changes. If you edited that copy in Preview and saved it, it's never overwritten; the next render goes to `Name 2.pdf`. To keep an annotated version, use File → Export or Duplicate.
+In Preview mode, Sumi opens a generated PDF from `~/Library/Caches/dev.schaefer.SupernoteViewer/`. It's regenerated when the notebook changes. If you edited that copy in Preview and saved it, it's never overwritten; the next render goes to `Name 2.pdf`. To keep an annotated version, use File → Export or Duplicate.
 
 ## Compatibility and feedback
 
@@ -96,7 +97,7 @@ brew install xcodegen
 ./install.sh
 ```
 
-This builds both apps and installs them to `/Applications`, replacing a copy installed from the DMG. The apps are signed ad-hoc, which is fine on your own Mac. To sign with your Apple Development certificate instead, run `DEVELOPMENT_TEAM=<your team ID> ./install.sh`.
+This builds Sumi for Supernote and installs it to `/Applications`, replacing a copy installed from the DMG (and removing an old Supernote Preview Bridge). The app is signed ad-hoc, which is fine on your own Mac. To sign with your Apple Development certificate instead, run `DEVELOPMENT_TEAM=<your team ID> ./install.sh`.
 
 `./release.sh` builds the signed and notarized DMG for a GitHub release. The script prints the one-time setup it needs.
 
@@ -109,20 +110,19 @@ This builds both apps and installs them to `/Applications`, replacing a copy ins
   - `swift test` runs the tests. Tests that use the files in `examples/` always run. Tests that need private sample files in `example_files/` are skipped when those files are missing.
   - `swift run -c release snrender <file> out.pdf [--png outdir] [--dpi n] [--bitmap] [--ocr] [--benchmark [n]]` renders a file from the command line. With `--ocr` it also prints the text layer and the table of contents. With `--benchmark` it renders the file n more times (default 5) after a warm-up and prints total and per-page timings. Use a release build for meaningful numbers.
 - `QuickLookPreview/`: the Quick Look extension. It is data-based and returns a PDF built by `PDFRenderer`.
-- `Shared/`: the render cache used by both apps.
-- `Viewer/`: Sumi for Supernote. Its PDFKit window has thumbnails, live reload and measuring. It exports the `.note` and `.mark` file types.
-- `Bridge/`: Supernote Preview Bridge. It hands rendered PDFs to Preview. It imports the file types, so it works on its own.
+- `Shared/`: the render cache used by Sumi's windows and its Preview mode.
+- `Viewer/`: Sumi for Supernote. Its PDFKit window has thumbnails, live reload and measuring; in Preview mode (`SettingsView.swift`) it hands rendered PDFs to Preview instead. It exports the `.note` and `.mark` file types.
 - `ViewerIOS/`: Sumi for iPhone and iPad (SwiftUI). It reads documents from Dropbox with read-only access and renders them with SupernoteKit. `ViewerIOSUITests/` drives it with the files in `examples/`.
 - `project.yml`: the XcodeGen spec. The `.xcodeproj` is generated from it.
-- `Viewer/AppIcon.icon`, `Bridge/AppIcon.icon`, `ViewerIOS/AppIcon.icon`: the app icons, made for Icon Composer (layers, glass, light-only appearance). Xcode builds the macOS 13–15 images from them. The brush S and washi layers are PNGs rendered by `Artwork/render.sh`; `Artwork/sumi/` has the brand artwork.
+- `Viewer/AppIcon.icon`, `ViewerIOS/AppIcon.icon`: the app icons, made for Icon Composer (layers, glass, light-only appearance). Xcode builds the macOS 13–15 images from them. The brush S and washi layers are PNGs rendered by `Artwork/render.sh`; `Artwork/sumi/` has the brand artwork.
 - `Artwork/`: icon sources. `render.sh` regenerates the icon layers and the `.note`/`.mark` document icons (`Shared/*.icns`) from `artwork.py`. `release.sh` uses `app-icon.swift` for the DMG volume icon, and the README banner uses it too.
 - `docs/hero/`: source of the README banner (`render.sh` regenerates it).
 
 ### Debugging
 
 - Renderer changes: `snrender` always renders fresh and leaves the apps' cache alone, e.g. from `SupernoteKit/`: `swift run snrender "../examples/Example Titles.note" /tmp/out.pdf --ocr && open /tmp/out.pdf`.
-- The Bridge from Xcode: in the SupernotePreviewBridge scheme, Edit Scheme → Run → Arguments, tick the example path (or add your own `.note`/`.mark`) and press Run. Debug builds open it freshly rendered in Preview, with breakpoints working and nothing installed or deleted. Release builds ignore the argument.
-- Outside Xcode, `touch file.note` makes the apps render that file again.
+- Preview from Xcode: in the SupernoteViewer scheme, Edit Scheme → Run → Arguments, tick the example path (or add your own `.note`/`.mark`) and press Run. Debug builds open it freshly rendered in Preview, with breakpoints working and nothing installed or deleted. Release builds ignore the argument.
+- Outside Xcode, `touch file.note` makes Sumi render that file again.
 - SupernoteKit is compiled with optimization in Debug builds too (`Package.swift`); unoptimized, large notebooks take minutes.
 
 ### Stroke data (`TOTALPATH`)

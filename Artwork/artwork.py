@@ -1,4 +1,4 @@
-"""Writes the icon artwork as SVG: the layers of the Viewer, Bridge and ViewerIOS AppIcon.icon bundles,
+"""Writes the icon artwork as SVG: the layers of the Viewer and ViewerIOS AppIcon.icon bundles,
 and the .note/.mark document icons (Artwork/build/, turned into .icns by render.sh).
 
 The app icon is the Sumi "Brush S on washi" (see Artwork/sumi/): the S painted with a brush on washi
@@ -129,26 +129,6 @@ def washi_texture():
             '<rect width="1024" height="1024" filter="url(#grain)"/>')
 
 
-def badge():
-    """Bridge badge: a PDF sheet with a folded corner and a blue arrow (hand-off to Preview)."""
-    x, y, w, h, f = 600, 556, 300, 372, 86
-    return (f'<path d="M{x + 18} {y} H{x + w - f} L{x + w} {y + f} V{y + h - 18} Q{x + w} {y + h} '
-            f'{x + w - 18} {y + h} H{x + 18} Q{x} {y + h} {x} {y + h - 18} V{y + 18} Q{x} {y} {x + 18} {y} Z" '
-            f'fill="{SHEET}"/>'
-            f'<path d="M{x + w - f} {y} V{y + f - 14} Q{x + w - f} {y + f} {x + w - f + 14} {y + f} H{x + w} Z" '
-            f'fill="#DCDBD5"/>'
-            f'<rect x="{x + 40}" y="{y + 120}" width="140" height="16" rx="8" fill="#BDBCB6"/>'
-            f'<rect x="{x + 40}" y="{y + 160}" width="110" height="16" rx="8" fill="#BDBCB6"/>'
-            f'<g transform="translate({x + w / 2 + 6} {y + h - 118})" stroke="{BLUE}" stroke-width="34" '
-            f'stroke-linecap="round" stroke-linejoin="round" fill="none">'
-            f'<path d="M-62 62 L58 -58"/><path d="M-6 -62 H62 V6"/></g>')
-
-
-# --- Document icons ---------------------------------------------------------------------------
-# A page with a folded corner on the 1024 canvas, like the macOS document template.
-PX0, PY0, PX1, PY1, FOLD, R = 164, 60, 860, 964, 196, 36
-
-
 def page(label, content, small, fill=PAPER_LIGHT):
     shadow = ('<filter id="sh" x="-10%" y="-10%" width="120%" height="120%">'
               '<feDropShadow dx="0" dy="8" stdDeviation="10" flood-opacity=".22"/></filter>')
@@ -208,11 +188,9 @@ def write(path, text):
 
 
 if __name__ == "__main__":
-    for app in ("Viewer", "Bridge", "ViewerIOS"):
+    for app in ("Viewer", "ViewerIOS"):
         assets = os.path.join(ROOT, app, "AppIcon.icon", "Assets")
         write(os.path.join(assets, "dot.svg"), svg(dot(grow=4)))
-        if app == "Bridge":
-            write(os.path.join(assets, "badge.svg"), svg(badge()))
     # Brush and paper layers: rendered to stroke.png and paper.png by render.sh.
     write(os.path.join(BUILD, "icon-stroke.svg"), svg(brush_s()))
     write(os.path.join(BUILD, "icon-paper.svg"), svg(washi_texture()))

@@ -12,7 +12,7 @@ settings:
     CODE_SIGN_IDENTITY: "-"
     ENABLE_HARDENED_RUNTIME: YES
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.4.0"
+    MARKETING_VERSION: "1.5.0"
     CURRENT_PROJECT_VERSION: "8"
 
 packages:
@@ -24,7 +24,8 @@ packages:
     exactVersion: 10.2.4
 
 targets:
-  # Opens .note/.mark/.pdf in its own windows (thumbnails, live reload, measuring).
+  # Opens .note/.mark/.pdf in its own windows (thumbnails, live reload, measuring), or hands
+  # .note/.mark to Preview.app as rendered PDFs (Settings → Open Supernote files in).
   SupernoteViewer:
     type: application
     platform: macOS
@@ -87,44 +88,7 @@ targets:
       - target: QuickLookPreview
         embed: true
         codeSign: true
-
-  # Renders .note/.mark to PDF and hands it to Preview.app.
-  SupernotePreviewBridge:
-    type: application
-    platform: macOS
-    sources: [Shared, Bridge]
-    info:
-      path: Bridge/Info.plist
-      properties:
-        CFBundleDisplayName: Supernote Preview Bridge
-        CFBundleShortVersionString: $(MARKETING_VERSION)
-        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        LSApplicationCategoryType: public.app-category.productivity
-        NSPrincipalClass: NSApplication
-        # No Dock icon: opening a file hands it straight to Preview.
-        LSUIElement: true
-        CFBundleDocumentTypes:
-          - CFBundleTypeName: Supernote Notebook
-            CFBundleTypeIconFile: SupernoteNote
-            CFBundleTypeRole: Viewer
-            LSHandlerRank: Owner
-            LSItemContentTypes: [dev.schaefer.supernote.note]
-          - CFBundleTypeName: Supernote PDF Annotations
-            CFBundleTypeIconFile: SupernoteMark
-            CFBundleTypeRole: Viewer
-            LSHandlerRank: Owner
-            LSItemContentTypes: [dev.schaefer.supernote.mark]
-        # Sumi for Supernote exports these types; importing keeps them defined without it.
-        UTImportedTypeDeclarations: *supernoteTypes
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.schaefer.SupernotePreviewBridge
-        PRODUCT_NAME: Supernote Preview Bridge
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon  # Bridge/AppIcon.icon (Icon Composer)
-    dependencies:
-      - package: SupernoteKit
-        product: SupernoteKit
-    # Debug builds open a .note/.mark passed as launch argument, freshly rendered. Tick it in
+    # Debug builds open a .note/.mark passed as launch argument, freshly rendered, in Preview. Tick it in
     # Edit Scheme → Run → Arguments (or add your own path) to test renderer changes in Preview.
     scheme:
       commandLineArguments:

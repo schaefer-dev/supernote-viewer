@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Builds both apps signed with Developer ID, packs them into a notarized, stapled DMG in dist/.
+# Builds Sumi for Supernote signed with Developer ID, packs them into a notarized, stapled DMG in dist/.
 #   ./release.sh            build, sign, notarize
 #   ./release.sh --publish  also create the GitHub release (needs `gh auth login`)
 set -euo pipefail
@@ -7,8 +7,8 @@ cd "$(dirname "$0")"
 
 TEAM=VYPW8U86QN
 NOTARY_PROFILE=supernote-notary
-APPS=("Sumi for Supernote" "Supernote Preview Bridge")
-SCHEMES=("SupernoteViewer" "SupernotePreviewBridge")
+APPS=("Sumi for Supernote")
+SCHEMES=("SupernoteViewer")
 VERSION=$(sed -n 's/^ *MARKETING_VERSION: *"\(.*\)"/\1/p' project.yml)
 DMG="dist/SupernoteViewer-$VERSION.dmg"
 PRODUCTS=build/ReleaseData/Build/Products/Release

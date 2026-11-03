@@ -1,11 +1,11 @@
 #!/bin/zsh
-# Builds Sumi for Supernote and Supernote Preview Bridge, installs both to /Applications (where the
-# release DMG puts them) and refreshes Launch Services, Finder services and Quick Look. Never changes the default app.
+# Builds Sumi for Supernote, installs it to /Applications (where the
+# release DMG puts it) and refreshes Launch Services, Finder services and Quick Look. Never changes the default app.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APPS=("Sumi for Supernote" "Supernote Preview Bridge")
-SCHEMES=("SupernoteViewer" "SupernotePreviewBridge")
+APPS=("Sumi for Supernote")
+SCHEMES=("SupernoteViewer")
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
 # Signs ad-hoc unless DEVELOPMENT_TEAM is set, e.g. DEVELOPMENT_TEAM=ABCDE12345 ./install.sh
@@ -37,14 +37,17 @@ for app in "${APPS[@]}"; do
   echo "Installed /Applications/$app.app"
 done
 
-# The viewer was called "Supernote Viewer" up to 1.4.0; it has the same bundle ID, so remove the old copy.
-for old in /Applications/"Supernote Viewer.app" ~/Applications/"Supernote Viewer.app"; do
-  if [[ -d "$old" ]]; then
-    pkill -f "Supernote Viewer.app/Contents/MacOS/Supernote Viewer" || true
-    "$LSREGISTER" -u "$old" 2>/dev/null || true
-    rm -rf "$old"
-    echo "Removed old $old"
-  fi
+# Remove apps from earlier versions: the viewer was called "Supernote Viewer" up to 1.4.0 (same bundle ID), and
+# Supernote Preview Bridge was a separate app up to 1.4.0 (now Settings → Open Supernote files in → Preview).
+for name in "Supernote Viewer" "Supernote Preview Bridge"; do
+  for old in /Applications/"$name.app" ~/Applications/"$name.app"; do
+    if [[ -d "$old" ]]; then
+      pkill -f "$name.app/Contents/MacOS/$name" || true
+      "$LSREGISTER" -u "$old" 2>/dev/null || true
+      rm -rf "$old"
+      echo "Removed old $old"
+    fi
+  done
 done
 
 /System/Library/CoreServices/pbs -update  # refresh Finder services

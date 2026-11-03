@@ -2,7 +2,7 @@ import AppKit
 import CryptoKit
 import SupernoteKit
 
-/// Renders Supernote files to PDFs in a cache shared by Sumi for Supernote and Supernote Preview Bridge.
+/// Renders Supernote files to PDFs in a cache shared by Sumi's windows and its Preview mode.
 @MainActor
 enum RenderCache {
     static let cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
