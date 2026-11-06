@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -30,6 +31,9 @@ struct LibraryView: View {
     @State private var showingSettings = false
     @State private var columns: NavigationSplitViewVisibility = .all
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.requestReview) private var requestReview
+    /// The library is on screen: the sidebar on iPhone, or the library column next to or over the reader on iPad.
+    private var libraryVisible: Bool { sizeClass == .compact ? compactColumn == .sidebar : columns != .detailOnly }
     var body: some View {
         // Two columns: the library (a navigation stack starting at Home) and the reader. On iPhone the
         // reader is pushed over the library, so Back returns to wherever the document was opened from.
@@ -55,6 +59,7 @@ struct LibraryView: View {
         .navigationSplitViewStyle(.prominentDetail)
         .onChange(of: library.opener.reference?.id) { _, identity in
             guard identity != nil else { return }
+            if library.opener.reference?.source != .fixture { ReviewPrompt().documentOpened() }
             compactColumn = .detail
             // Give the page the whole screen; the reader's Library button brings the library back.
             // A document opened while the app launches (from Files, say) arrives while the split view
@@ -64,6 +69,14 @@ struct LibraryView: View {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(500))
                 if library.opener.reference?.id == identity, columns != .detailOnly { withAnimation { columns = .detailOnly } }
+            }
+        }
+        // Apple's rating prompt, after a few documents and only once the reader is left.
+        .onChange(of: libraryVisible) { _, visible in
+            guard visible, library.opener.reference != nil, ReviewPrompt().shouldAskOnReturningToLibrary() else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                if libraryVisible { requestReview() }
             }
         }
         .sheet(isPresented: $showingSettings) { SettingsView(library: library) }

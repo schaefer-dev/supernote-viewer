@@ -104,7 +104,10 @@ final class ReaderPDFView: PDFView {
         guard document !== self.document else { return }
         searches.advance()
         let replacing = self.document != nil
-        let destination = view.currentDestination
+        // The searchable PDF replacing a preview has the same pages, so the exact scroll position is kept.
+        // Going through `currentDestination` instead moved the view about a page down.
+        let offset = Self.scrollView(in: view)?.contentOffset
+        let sameLayout = self.document.map { Self.samePages($0, document, box: view.displayBox) } ?? false
         let zoom = view.scaleFactor / max(view.scaleFactorForSizeToFit, 0.01)
         self.document?.cancelFindString()
         self.document?.delegate = nil
@@ -118,14 +121,21 @@ final class ReaderPDFView: PDFView {
             let view = self.view
             view.navigate {
                 guard view.document === document else { return }
-                if replacing, let destination { view.go(to: PDFDestination(page: newPage, at: destination.point)) }
-                else { view.go(to: newPage) }
                 if replacing { view.scaleFactor = max(view.minScaleFactor, min(view.maxScaleFactor, view.scaleFactorForSizeToFit * zoom)) }
+                if replacing, sameLayout, let offset, let scrollView = Self.scrollView(in: view) {
+                    view.layoutIfNeeded()
+                    scrollView.setContentOffset(offset, animated: false)
+                } else {
+                    view.go(to: newPage)
+                }
             }
         }
         titles = Self.titles(in: document)
         titlesChanged?()
         search()
+    }
+    private static func samePages(_ a: PDFDocument, _ b: PDFDocument, box: PDFDisplayBox) -> Bool {
+        a.pageCount == b.pageCount && (0..<a.pageCount).allSatisfy { a.page(at: $0)?.bounds(for: box) == b.page(at: $0)?.bounds(for: box) }
     }
     static func titles(in document: PDFDocument) -> [Title] {
         var result: [Title] = []

@@ -146,8 +146,8 @@ final class ReaderUITests: XCTestCase {
         samples.tap()
         app.buttons["Annotated PDF"].tap()
         XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 30), "The bundled annotated PDF opens with its original")
-        XCTAssertTrue(app.navigationBars.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Garmin")).firstMatch.exists
-                      || app.staticTexts["Document Title"].label.contains("Garmin"))
+        XCTAssertTrue(app.navigationBars.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Meditations")).firstMatch.exists
+                      || app.staticTexts["Document Title"].label.contains("Meditations"))
     }
     @MainActor func testAnnotatedPDFOpens() {
         let app = Fixture.launch(opening: Fixture.annotated)

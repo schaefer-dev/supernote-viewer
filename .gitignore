@@ -37,9 +37,11 @@ Package.resolved
 example_files/
 *.note
 *.mark
-# Demo files are committed
+# Test fixtures (examples/) and the showcase documents bundled in the iOS app (samples/) are committed
 !examples/*.note
 !examples/*.mark
+!samples/*.note
+!samples/*.mark
 # Test fixtures from supernote-typescript are committed
 !SupernoteKit/Tests/Fixtures/**/*.note
 !SupernoteKit/Tests/Fixtures/**/*.mark

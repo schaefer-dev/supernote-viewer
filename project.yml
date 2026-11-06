@@ -134,8 +134,8 @@ targets:
     sources:
       - path: ViewerIOS
         excludes: [Configuration]
-      # Bundled sample documents for trying the app without Dropbox.
-      - path: examples
+      # Bundled sample documents for trying the app without Dropbox (examples/ holds the test fixtures).
+      - path: samples
         type: folder
         buildPhase: resources
     configFiles:

@@ -90,7 +90,7 @@ For floor plans and sketches: choose **Calibrate** and drag along a length you k
 
    PDFs opened with Sumi and the **Measure in Sumi for Supernote** Quick Action always use Sumi's own window.
 
-Want to try it before syncing your own notes? Use the files in [`examples/`](examples/).
+Want to try it before syncing your own notes? Use the files in [`samples/`](samples/).
 
 If Quick Look previews don't show up, check that **Supernote Quick Look** is turned on under System Settings → General → Login Items & Extensions → Quick Look.
 
@@ -129,10 +129,11 @@ This builds Sumi for Supernote and installs it to `/Applications`, replacing a c
 - `SupernoteKit/`: Swift package with the file parser, RLE decoder, layer compositor, stroke (`TOTALPATH`) parser, vector renderer, handwriting text layer and PDF renderer.
   - `swift test` runs the tests. Tests that use the files in `examples/` always run. Tests that need private sample files in `example_files/` are skipped when those files are missing.
   - `swift run -c release snrender <file> out.pdf [--png outdir] [--dpi n] [--bitmap] [--ocr] [--benchmark [n]]` renders a file from the command line. With `--ocr` it also prints the text layer and the table of contents. With `--benchmark` it renders the file n more times (default 5) after a warm-up and prints total and per-page timings. Use a release build for meaningful numbers.
+- `examples/`: small test fixtures used by the SupernoteKit and iOS tests. `samples/`: the showcase documents bundled in the iOS app (offered on Home before Dropbox is connected) and used for the App Store screenshots; `SampleFileTests` keeps them renderable. Both are synthetic, tablet-made files.
 - `QuickLookPreview/`: the Quick Look extension. It is data-based and returns a PDF built by `PDFRenderer`.
 - `Shared/`: the render cache used by Sumi's windows and its Preview mode.
 - `Viewer/`: Sumi for Supernote. Its PDFKit window has thumbnails, live reload and measuring; in Preview mode (`SettingsView.swift`) it hands rendered PDFs to Preview instead. It exports the `.note` and `.mark` file types.
-- `ViewerIOS/`: Sumi for iPhone and iPad (SwiftUI). It reads documents from Dropbox with read-only access and renders them with SupernoteKit. `ViewerIOSUITests/` drives it with the files in `examples/`.
+- `ViewerIOS/`: Sumi for iPhone and iPad (SwiftUI). It reads documents from Dropbox with read-only access and renders them with SupernoteKit. `ViewerIOSUITests/` drives it with the files in `examples/`. The app bundles the showcase documents in `samples/`, offered on Home before Dropbox is connected.
 - `project.yml`: the XcodeGen spec. The `.xcodeproj` is generated from it.
 - `Viewer/AppIcon.icon`, `ViewerIOS/AppIcon.icon`: the app icons, made for Icon Composer (layers, glass, light-only appearance). Xcode builds the macOS 13–15 images from them. The brush S and washi layers are PNGs rendered by `Artwork/render.sh`; `Artwork/sumi/` has the brand artwork.
 - `Artwork/`: icon sources. `render.sh` regenerates the icon layers and the `.note`/`.mark` document icons (`Shared/*.icns`) from `artwork.py`. `release.sh` uses `app-icon.swift` for the DMG volume icon, and the README banner uses it too.

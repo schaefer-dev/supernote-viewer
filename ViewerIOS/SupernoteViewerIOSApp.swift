@@ -141,7 +141,7 @@ import Network
         favorites.removeAll(account: account); recents.removeAll(account: account)
         RenderedPDFCache.shared.removeAll(accountID: account)
         recents.setRoot(RemoteEntry(id: "demo-root", name: "Supernote", path: "/Supernote", isFolder: true), account: account)
-        let documents: [(SampleDocument, folder: String)] = [(.titles, "Note"), (.annotatedPDF, "Document"), (.notebook, "Note")]
+        let documents: [(SampleDocument, folder: String)] = [(.notebook, "Note"), (.annotatedPDF, "Document")]
         func reference(_ sample: SampleDocument, _ folder: String) -> DocumentReference? {
             guard let url = sample.url else { return nil }
             return .init(source: .dropbox, accountID: account, fileID: "demo-\(sample)", name: url.lastPathComponent,
@@ -150,7 +150,7 @@ import Network
         for (sample, folder) in documents.reversed() {
             if let reference = reference(sample, folder) { recents.save(reference, page: 0) }
         }
-        if let titles = reference(.titles, "Note") { favorites.toggleDocument(titles) }
+        if let notebook = reference(.notebook, "Note") { favorites.toggleDocument(notebook) }
         if let pdf = reference(.annotatedPDF, "Document") { favorites.toggleBookmark(pdf, page: 1, title: nil) }
         // Render each sample once so lists show real page thumbnails.
         let renderer = EngineRenderer()
@@ -284,32 +284,29 @@ import Network
     }
 }
 
-/// Documents bundled in the app from the repository's `examples` folder.
+/// Documents bundled in the app from the repository's `samples` folder.
 enum SampleDocument: CaseIterable, Identifiable {
-    case notebook, titles, annotatedPDF
+    case notebook, annotatedPDF
     var id: Self { self }
     var title: String {
         switch self {
         case .notebook: "Handwritten Notebook"
-        case .titles: "Notebook with Titles"
         case .annotatedPDF: "Annotated PDF"
         }
     }
     var systemImage: String {
         switch self {
         case .notebook: "pencil.and.scribble"
-        case .titles: "list.bullet.indent"
         case .annotatedPDF: "doc.richtext"
         }
     }
     private var fileName: String {
         switch self {
-        case .notebook: "Example Note.note"
-        case .titles: "Example Titles.note"
-        case .annotatedPDF: "2026-03-22 Garmin Connect Integration.pdf.mark"
+        case .notebook: "Handwritten Notes.note"
+        case .annotatedPDF: "Meditations, Book II.pdf.mark"
         }
     }
-    static var folder: URL? { Bundle.main.resourceURL?.appendingPathComponent("examples", isDirectory: true) }
+    static var folder: URL? { Bundle.main.resourceURL?.appendingPathComponent("samples", isDirectory: true) }
     var url: URL? {
         guard let url = Self.folder?.appendingPathComponent(fileName), FileManager.default.fileExists(atPath: url.path) else { return nil }
         return url
